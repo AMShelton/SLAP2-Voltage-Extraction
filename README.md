@@ -87,6 +87,34 @@ The file intentionally resembles the useful parts of SILo's `experiment_summary.
 
 `raw_f`, `f0`, and `dff` use shape `[nROIs x 1 x totalSamples]` in MATLAB. Because the file is written with MATLAB's column-major HDF5 convention (`/row_major = 0`), readers such as h5py will see the dimensions reversed.
 
+## Runtime behavior
+
+The MATLAB reference implementation is optimized around the common continuous-CYCLE voltage workflow:
+
+- each distinct raw SLAP2 source file is opened once for extraction; the first source handle is reused after metadata/ROI discovery instead of being reopened;
+- integration ROIs are extracted in bounded asynchronous batches (`nWorkers`, `maxConcurrentROIs`);
+- repeated pseudo-trials from one continuous source are written as one contiguous HDF5 block per ROI whenever their source and output ranges are contiguous;
+- F0 and dF/F are computed directly from the in-memory raw trace when one source file contains a complete acquisition epoch, avoiding a full `raw_f` HDF5 reread;
+- only epochs assembled from multiple raw files use the bounded HDF5 readback fallback needed to preserve epoch-scoped F0 semantics;
+- full trace arrays are released from the batch container before F0/dF/F processing to keep peak memory bounded.
+
+`Voltage` returns per-path timing diagnostics in `summary.timing.path`, including:
+
+```text
+metadata_s
+source_open_s
+output_init_s
+raw_trace_s
+raw_write_s
+raw_h5_writes
+fallback_read_s
+derived_compute_s
+derived_write_s
+total_s
+```
+
+Timing diagnostics are returned in the MATLAB `summary` structure rather than written into `VoltageSummary.h5`, keeping the scientific HDF5 output deterministic for later MATLAB/Python byte-parity work. For a normal single-source CYCLE epoch, `fallback_read_s` should be zero.
+
 ## Voltage dF/F
 
 The default F0 model matches the robust pathway used in `vip-slap2-analysis`:

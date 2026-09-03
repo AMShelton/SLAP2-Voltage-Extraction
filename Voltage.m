@@ -16,9 +16,13 @@ function summary = Voltage(dr_or_pathToTrialTable, paramsIn)
 %       /Path#/sources/spatial/{profiles,coords,source_roi_index,roi_pixel_count}
 %       /Path#/sources/temporal/{raw_f,f0,dff}
 %
-% raw_f is the direct SLAP2 Trace output. F0 and dff are calculated after raw
-% extraction, independently within inferred acquisition epochs. No motion
-% correction is performed.
+% raw_f is the direct SLAP2 Trace output. F0 and dff are calculated from the
+% in-memory raw trace whenever one source file contains a complete acquisition
+% epoch. This is the normal fast path for continuous CYCLE recordings and avoids
+% rereading raw_f from HDF5. A bounded HDF5 fallback is retained only for epochs
+% assembled from multiple raw source files. No motion correction is performed.
+
+runTimer = tic;
 
 if nargin < 1 || isempty(dr_or_pathToTrialTable)
     [fn, dr] = uigetfile({'*.h5','HDF5 files (*.h5)'}, 'Select trial_table.h5');
@@ -37,6 +41,7 @@ end
 trialTable = loadStructFromH5(trialTablePath);
 validateTrialTable(trialTable);
 trialTableDir = fileparts(trialTablePath);
+dataDir = resolveDataDir(trialTable, trialTableDir);
 
 if isempty(params.outputDir)
     outputDir = fullfile(trialTableDir, 'Voltage');
@@ -81,7 +86,7 @@ for p = 1:nPaths
 end
 
 rootPayload = struct();
-rootPayload.format_version = '0.2.0';
+rootPayload.format_version = '0.2.1';
 rootPayload.params = params;
 saveStructToH5(rootPayload, outputPath);
 
@@ -92,38 +97,53 @@ summary.params = params;
 summary.nPaths = nPaths;
 summary.nTrials = nTrials;
 summary.path = repmat(struct(),1,nPaths);
+summary.timing = struct();
+summary.timing.path = repmat(emptyTiming(),1,nPaths);
 
 % Configure workers before the extraction pass. HDF5 writes remain serial.
 params = configureParallelPool(params);
 summary.params = params;
 
 for pathIdx = 1:nPaths
+    pathTimer = tic;
+    timing = emptyTiming();
     fprintf('\n=== Voltage Path%d/%d ===\n', pathIdx, nPaths);
     validTrials = find(~cellfun(@isempty, filename(pathIdx,:)) & trialNumSamples(pathIdx,:) > 0);
     if isempty(validTrials)
         warning('Voltage:NoValidTrials', 'Path%d has no valid trials; skipping.', pathIdx);
+        timing.total_s = toc(pathTimer);
+        summary.timing.path(pathIdx) = timing;
         continue
     end
 
-    dataDir = resolveDataDir(trialTable, trialTableDir);
-    firstSource = resolveDataFilePath(dataDir, trialTableDir, filename{pathIdx,validTrials(1)});
-    hMDF = slap2.util.MultiDataFiles(firstSource);
-    validateParsePlanCompatibility(hMDF, pathIdx);
-    [masks, sourceRoiIdx] = getIntegrationMasks(hMDF);
+    sourceFiles = filename(pathIdx,validTrials);
+    [uniqueSources,~,sourceGroup] = unique(sourceFiles,'stable');
+
+    % Open the first source once and keep it alive through its extraction pass.
+    % The previous implementation opened this file for metadata, closed it, then
+    % immediately reopened it for extraction.
+    firstSource = resolveDataFilePath(dataDir, trialTableDir, uniqueSources{1});
+    metadataTimer = tic;
+    hFirstMDF = slap2.util.MultiDataFiles(firstSource);
+    validateParsePlanCompatibility(hFirstMDF, pathIdx);
+    [masks, sourceRoiIdx] = getIntegrationMasks(hFirstMDF);
+    sampleRateHz = resolveSampleRateHz(hFirstMDF);
+    zDepth = resolveZDepth(hFirstMDF);
+    canonicalMeta = getGeometryMeta(hFirstMDF);
+    timing.metadata_s = timing.metadata_s + toc(metadataTimer);
+
     if isempty(sourceRoiIdx)
         warning('Voltage:NoIntegrationROIs', 'Path%d has no integration ROIs; skipping source datasets.', pathIdx);
     end
-    sampleRateHz = resolveSampleRateHz(hMDF);
-    zDepth = resolveZDepth(hMDF);
-    canonicalMeta = getGeometryMeta(hMDF);
-    delete(hMDF); clear hMDF
 
     nRois = size(masks,3);
     [trialOffsets, totalSamples] = computeTrialOffsets(trialNumSamples(pathIdx,:));
     pathName = sprintf('/Path%d',pathIdx);
+    outputInitTimer = tic;
     initializePathOutput(outputPath, pathName, masks, sourceRoiIdx, ...
         sampleRateHz, zDepth, trialNumSamples(pathIdx,:), analysisEpoch(pathIdx,:), ...
         firstLine(pathIdx,:), lastLine(pathIdx,:), trialOffsets, params);
+    timing.output_init_s = timing.output_init_s + toc(outputInitTimer);
 
     summary.path(pathIdx).nROIs = nRois;
     summary.path(pathIdx).sampleRateHz = sampleRateHz;
@@ -132,56 +152,127 @@ for pathIdx = 1:nPaths
     summary.path(pathIdx).trialEpoch = analysisEpoch(pathIdx,:);
 
     if nRois == 0
+        delete(hFirstMDF); clear hFirstMDF
+        timing.total_s = toc(pathTimer);
+        summary.timing.path(pathIdx) = timing;
         continue
     end
+
+    % Identify epochs for which one raw source contains every valid trial. Those
+    % epochs can be transformed directly from the in-memory Trace output. Only
+    % multi-source epochs need the HDF5 fallback after extraction.
+    allEpochIds = unique(analysisEpoch(pathIdx,validTrials),'stable');
+    inMemoryEpochIds = [];
+    for sourceIdx = 1:numel(uniqueSources)
+        sourceTrials = validTrials(sourceGroup == sourceIdx);
+        complete = completeEpochsForSource(sourceTrials, validTrials, analysisEpoch(pathIdx,:));
+        inMemoryEpochIds = appendUniqueStable(inMemoryEpochIds, complete);
+    end
+    fallbackEpochIds = setdiff(allEpochIds, inMemoryEpochIds, 'stable');
+    summary.path(pathIdx).inMemoryEpochIds = inMemoryEpochIds;
+    summary.path(pathIdx).fallbackEpochIds = fallbackEpochIds;
 
     % Extract each distinct raw source file once. Continuous CYCLE pseudo-trials
     % usually point repeatedly to the same first CYCLE file, so this avoids
     % reprocessing the full acquisition for every pseudo-trial.
-    sourceFiles = filename(pathIdx,validTrials);
-    [uniqueSources,~,sourceGroup] = unique(sourceFiles,'stable');
     for sourceIdx = 1:numel(uniqueSources)
         sourceName = uniqueSources{sourceIdx};
         sourceTrials = validTrials(sourceGroup == sourceIdx);
         sourcePath = resolveDataFilePath(dataDir, trialTableDir, sourceName);
         fprintf('Path%d source %d/%d: %s\n', pathIdx, sourceIdx, numel(uniqueSources), sourceName);
 
-        hMDF = slap2.util.MultiDataFiles(sourcePath);
-        validateParsePlanCompatibility(hMDF, pathIdx);
+        if sourceIdx == 1
+            hMDF = hFirstMDF;
+            hFirstMDF = [];
+        else
+            sourceOpenTimer = tic;
+            hMDF = slap2.util.MultiDataFiles(sourcePath);
+            timing.source_open_s = timing.source_open_s + toc(sourceOpenTimer);
+            validateParsePlanCompatibility(hMDF, pathIdx);
+        end
+
         [sourceMasks, sourceRoiIdxNow] = getIntegrationMasks(hMDF);
         validateSourceCompatibility(pathIdx, sourceName, canonicalMeta, getGeometryMeta(hMDF), ...
             masks, sourceMasks, sourceRoiIdx, sourceRoiIdxNow, sampleRateHz, resolveSampleRateHz(hMDF));
 
+        completeEpochIds = completeEpochsForSource(sourceTrials, validTrials, analysisEpoch(pathIdx,:));
         batches = makeBatches(1:nRois, params.maxConcurrentROIs);
         for batchIdx = 1:numel(batches)
             batch = batches{batchIdx};
             fprintf('  ROI batch %d/%d: %s\n', batchIdx, numel(batches), mat2str(batch));
+
+            traceTimer = tic;
             [traces, errors] = extractRoiBatch(hMDF, masks, batch, params);
+            timing.raw_trace_s = timing.raw_trace_s + toc(traceTimer);
+
             for j = 1:numel(batch)
                 roiIdx = batch(j);
                 if ~isempty(errors{j})
+                    delete(hMDF);
                     error('Voltage:ROIExtractionFailed', ...
                         'Path%d ROI%d failed for %s:\n%s', pathIdx, roiIdx, sourceName, errors{j});
                 end
                 trace = castTrace(traces{j}, params.precision);
-                writeRawTrialSlices(outputPath, pathName, trace, roiIdx, sourceTrials, ...
-                    firstLine(pathIdx,:), lastLine(pathIdx,:), trialOffsets, trialNumSamples(pathIdx,:));
+                traces{j} = []; % release the batch-held full trace before derived processing
+
+                % Write raw fluorescence. For the normal CYCLE case, all pseudo-
+                % trial slices are contiguous in both the source trace and output
+                % axis, so this collapses dozens/hundreds of h5write calls to one.
+                rawWriteTimer = tic;
+                timing.raw_h5_writes = timing.raw_h5_writes + writeRawSourceSlices( ...
+                    outputPath, pathName, trace, roiIdx, sourceTrials, ...
+                    firstLine(pathIdx,:), lastLine(pathIdx,:), trialOffsets, ...
+                    trialNumSamples(pathIdx,:));
+                timing.raw_write_s = timing.raw_write_s + toc(rawWriteTimer);
+
+                % Fast path: derive F0 and dF/F while raw F is still in memory.
+                for epochId = reshape(completeEpochIds,1,[])
+                    epochTrials = sourceTrials(analysisEpoch(pathIdx,sourceTrials) == epochId);
+                    rawEpoch = concatenateTraceTrials(trace, epochTrials, ...
+                        firstLine(pathIdx,:), lastLine(pathIdx,:), trialNumSamples(pathIdx,:));
+
+                    derivedTimer = tic;
+                    [f0,~] = computeVoltageF0(rawEpoch,sampleRateHz,params);
+                    [dff,~] = computeVoltageDFF(rawEpoch,f0,params.indicatorName, ...
+                        params.indicatorDirection,params.precision);
+                    timing.derived_compute_s = timing.derived_compute_s + toc(derivedTimer);
+
+                    derivedWriteTimer = tic;
+                    writeDerivedEpoch(outputPath,pathName,roiIdx,epochTrials,trialOffsets, ...
+                        trialNumSamples(pathIdx,:),f0,dff);
+                    timing.derived_write_s = timing.derived_write_s + toc(derivedWriteTimer);
+                    clear rawEpoch f0 dff
+                end
+                clear trace
             end
+            clear traces errors
         end
         delete(hMDF); clear hMDF
     end
 
-    % Compute F0/dF/F after raw extraction. Reading one ROI/epoch at a time keeps
-    % the memory footprint bounded and gives both continuous and trial-file data
-    % the same epoch-scoped baseline behavior.
-    fprintf('Computing epoch-scoped F0 and dF/F for Path%d...\n', pathIdx);
-    transformPath(outputPath, pathName, nRois, analysisEpoch(pathIdx,:), ...
-        trialOffsets, trialNumSamples(pathIdx,:), sampleRateHz, params);
+    % Fallback only for epochs assembled from multiple raw files. This preserves
+    % epoch-scoped F0 semantics without penalizing the normal continuous-CYCLE path.
+    if ~isempty(fallbackEpochIds)
+        fprintf('Path%d: HDF5 fallback for multi-source epoch(s): %s\n', ...
+            pathIdx, mat2str(fallbackEpochIds));
+        fallbackTiming = transformPathEpochs(outputPath, pathName, nRois, ...
+            analysisEpoch(pathIdx,:), trialOffsets, trialNumSamples(pathIdx,:), ...
+            sampleRateHz, params, fallbackEpochIds);
+        timing.fallback_read_s = timing.fallback_read_s + fallbackTiming.read_s;
+        timing.derived_compute_s = timing.derived_compute_s + fallbackTiming.compute_s;
+        timing.derived_write_s = timing.derived_write_s + fallbackTiming.write_s;
+    end
+
+    timing.total_s = toc(pathTimer);
+    summary.timing.path(pathIdx) = timing;
+    summary.path(pathIdx).timing = timing;
+
 end
 
-fprintf('\nVoltage extraction complete:\n  %s\n', outputPath);
-end
+summary.timing.total_s = toc(runTimer);
 
+fprintf('\nVoltage extraction complete in %.1f s:\n  %s\n', summary.timing.total_s, outputPath);
+end
 
 function path = resolveTrialTablePath(inputPath)
 inputPath = char(string(inputPath));
@@ -610,11 +701,37 @@ end
 end
 
 
-function writeRawTrialSlices(filename,pathName,trace,roiIdx,trialIndices,firstLine,lastLine,trialOffsets,trialLengths)
+function nWrites = writeRawSourceSlices(filename,pathName,trace,roiIdx,trialIndices, ...
+    firstLine,lastLine,trialOffsets,trialLengths)
+%WRITERAWSOURCESLICES Write one source trace with a contiguous fast path.
 dset = [pathName '/sources/temporal/raw_f'];
-for t = reshape(trialIndices,1,[])
+trials = sort(reshape(trialIndices,1,[]));
+trials = trials(trialLengths(trials) > 0);
+nWrites = 0;
+if isempty(trials), return, end
+
+if trialsAreContiguousInSourceAndOutput(trials,firstLine,lastLine,trialOffsets,trialLengths)
+    n = sum(trialLengths(trials));
+    a = round(firstLine(trials(1)));
+    b = round(lastLine(trials(end)));
+    if a < 1 || b > numel(trace) || b < a
+        error('Voltage:TraceTooShort', ...
+            'ROI%d contiguous source range [%d %d] is outside extracted trace length %d.', ...
+            roiIdx,a,b,numel(trace));
+    end
+    seg = trace(a:b);
+    if numel(seg) ~= n
+        error('Voltage:TraceLengthMismatch', ...
+            'ROI%d contiguous source block expected %d samples but extracted %d.',roiIdx,n,numel(seg));
+    end
+    h5write(filename,dset,reshape(seg,1,1,n), ...
+        [roiIdx 1 trialOffsets(trials(1))],[1 1 n]);
+    nWrites = 1;
+    return
+end
+
+for t = trials
     n = trialLengths(t);
-    if n <= 0, continue, end
     a = max(1,round(firstLine(t)));
     b = min(numel(trace),round(lastLine(t)));
     if b < a
@@ -626,16 +743,142 @@ for t = reshape(trialIndices,1,[])
         error('Voltage:TraceLengthMismatch', ...
             'ROI%d trial%d expected %d samples but extracted %d.',roiIdx,t,n,numel(seg));
     end
-    payload = reshape(seg,1,1,n);
-    h5write(filename,dset,payload,[roiIdx 1 trialOffsets(t)],[1 1 n]);
+    h5write(filename,dset,reshape(seg,1,1,n), ...
+        [roiIdx 1 trialOffsets(t)],[1 1 n]);
+    nWrites = nWrites + 1;
 end
 end
 
 
-function transformPath(filename,pathName,nRois,trialEpoch,trialOffsets,trialLengths,sampleRateHz,params)
+function tf = trialsAreContiguousInSourceAndOutput(trials,firstLine,lastLine,trialOffsets,trialLengths)
+tf = true;
+if numel(trials) <= 1, return, end
+for k = 1:(numel(trials)-1)
+    t0 = trials(k);
+    t1 = trials(k+1);
+    sourceContiguous = round(firstLine(t1)) == round(lastLine(t0)) + 1;
+    outputContiguous = trialOffsets(t1) == trialOffsets(t0) + trialLengths(t0);
+    if ~sourceContiguous || ~outputContiguous
+        tf = false;
+        return
+    end
+end
+end
+
+
+function epochIds = completeEpochsForSource(sourceTrials,validTrials,trialEpoch)
+%COMPLETEEPOCHSFORSOURCE Return epochs wholly represented by one raw source.
+epochIds = [];
+if isempty(sourceTrials), return, end
+candidates = unique(trialEpoch(sourceTrials),'stable');
+for e = reshape(candidates,1,[])
+    sourceInEpoch = sort(sourceTrials(trialEpoch(sourceTrials)==e));
+    allInEpoch = sort(validTrials(trialEpoch(validTrials)==e));
+    if isequal(sourceInEpoch,allInEpoch)
+        epochIds(end+1) = e; %#ok<AGROW>
+    end
+end
+end
+
+
+function out = appendUniqueStable(out,values)
+for v = reshape(values,1,[])
+    if ~any(out == v)
+        out(end+1) = v; %#ok<AGROW>
+    end
+end
+end
+
+
+function rawEpoch = concatenateTraceTrials(trace,trials,firstLine,lastLine,trialLengths)
+%CONCATENATETRACETRIALS Assemble exactly the temporal axis saved for one epoch.
+trials = sort(reshape(trials,1,[]));
+trials = trials(trialLengths(trials) > 0);
+if isempty(trials)
+    rawEpoch = zeros(0,1,'like',trace);
+    return
+end
+
+% Common CYCLE fast path: one contiguous slice from the source trace.
+sourceContiguous = true;
+for k = 1:(numel(trials)-1)
+    if round(firstLine(trials(k+1))) ~= round(lastLine(trials(k))) + 1
+        sourceContiguous = false;
+        break
+    end
+end
+if sourceContiguous
+    a = round(firstLine(trials(1)));
+    b = round(lastLine(trials(end)));
+    if a < 1 || b > numel(trace) || b < a
+        error('Voltage:TraceTooShort', ...
+            'Epoch source range [%d %d] is outside extracted trace length %d.',a,b,numel(trace));
+    end
+    rawEpoch = trace(a:b);
+    expected = sum(trialLengths(trials));
+    if numel(rawEpoch) ~= expected
+        error('Voltage:TraceLengthMismatch', ...
+            'Epoch expected %d samples but contiguous source slice contains %d.',expected,numel(rawEpoch));
+    end
+    rawEpoch = rawEpoch(:);
+    return
+end
+
+nTotal = sum(trialLengths(trials));
+rawEpoch = zeros(nTotal,1,'like',trace);
+off = 1;
+for t = trials
+    n = trialLengths(t);
+    a = round(firstLine(t));
+    b = round(lastLine(t));
+    if a < 1 || b > numel(trace) || b < a
+        error('Voltage:TraceTooShort', ...
+            'Trial%d source range [%d %d] is outside extracted trace length %d.',t,a,b,numel(trace));
+    end
+    seg = trace(a:b);
+    if numel(seg) ~= n
+        error('Voltage:TraceLengthMismatch', ...
+            'Trial%d expected %d samples but source slice contains %d.',t,n,numel(seg));
+    end
+    rawEpoch(off:off+n-1) = seg(:);
+    off = off+n;
+end
+end
+
+
+function writeDerivedEpoch(filename,pathName,roiIdx,trials,trialOffsets,trialLengths,f0,dff)
+trials = sort(reshape(trials,1,[]));
+trials = trials(trialLengths(trials) > 0);
+if isempty(trials), return, end
+nEpoch = sum(trialLengths(trials));
+if numel(f0) ~= nEpoch || numel(dff) ~= nEpoch
+    error('Voltage:DerivedLengthMismatch', ...
+        'Derived epoch length mismatch: expected %d, f0=%d, dff=%d.',nEpoch,numel(f0),numel(dff));
+end
+firstOffset = trialOffsets(trials(1));
+if firstOffset < 1
+    error('Voltage:InvalidTrialOffset','Invalid output offset for trial %d.',trials(1));
+end
+% Complete analysis epochs occupy one contiguous block on the output axis.
+for k = 1:(numel(trials)-1)
+    t0 = trials(k); t1 = trials(k+1);
+    if trialOffsets(t1) ~= trialOffsets(t0) + trialLengths(t0)
+        error('Voltage:DisjointEpoch','Epoch trials are not contiguous on the output axis.');
+    end
+end
+h5write(filename,[pathName '/sources/temporal/f0'],reshape(f0,1,1,nEpoch), ...
+    [roiIdx 1 firstOffset],[1 1 nEpoch]);
+h5write(filename,[pathName '/sources/temporal/dff'],reshape(dff,1,1,nEpoch), ...
+    [roiIdx 1 firstOffset],[1 1 nEpoch]);
+end
+
+
+function timing = transformPathEpochs(filename,pathName,nRois,trialEpoch,trialOffsets, ...
+    trialLengths,sampleRateHz,params,epochIds)
+%TRANSFORMPATHEPOCHS HDF5 fallback for epochs spanning multiple raw files.
+timing = struct('read_s',0,'compute_s',0,'write_s',0);
 validTrials = find(trialLengths > 0);
-if isempty(validTrials), return, end
-epochIds = unique(trialEpoch(validTrials),'stable');
+if isempty(validTrials) || isempty(epochIds), return, end
 rawPath = [pathName '/sources/temporal/raw_f'];
 f0Path = [pathName '/sources/temporal/f0'];
 dffPath = [pathName '/sources/temporal/dff'];
@@ -651,14 +894,38 @@ for roiIdx = 1:nRois
         end
         firstOffset = trialOffsets(trials(1));
         nEpoch = sum(trialLengths(trials));
+
+        readTimer = tic;
         raw = h5read(filename,rawPath,[roiIdx 1 firstOffset],[1 1 nEpoch]);
         raw = reshape(raw,[],1);
+        timing.read_s = timing.read_s + toc(readTimer);
+
+        computeTimer = tic;
         [f0,~] = computeVoltageF0(raw,sampleRateHz,params);
         [dff,~] = computeVoltageDFF(raw,f0,params.indicatorName,params.indicatorDirection,params.precision);
+        timing.compute_s = timing.compute_s + toc(computeTimer);
+
+        writeTimer = tic;
         h5write(filename,f0Path,reshape(f0,1,1,nEpoch),[roiIdx 1 firstOffset],[1 1 nEpoch]);
         h5write(filename,dffPath,reshape(dff,1,1,nEpoch),[roiIdx 1 firstOffset],[1 1 nEpoch]);
+        timing.write_s = timing.write_s + toc(writeTimer);
     end
 end
+end
+
+
+function timing = emptyTiming()
+timing = struct( ...
+    'metadata_s',0, ...
+    'source_open_s',0, ...
+    'output_init_s',0, ...
+    'raw_trace_s',0, ...
+    'raw_write_s',0, ...
+    'raw_h5_writes',0, ...
+    'fallback_read_s',0, ...
+    'derived_compute_s',0, ...
+    'derived_write_s',0, ...
+    'total_s',0);
 end
 
 

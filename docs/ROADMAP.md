@@ -9,6 +9,7 @@
 - [x] `f0` and polarity-corrected `dff` using the robust voltage baseline model used by `vip-slap2-analysis`.
 - [x] ASAP7/ASAP8 direction configuration.
 - [x] Epoch-scoped F0 so acquisition restarts are never bridged by the baseline model.
+- [x] Runtime fast path: reuse source readers, contiguous CYCLE HDF5 writes, and in-memory F0/dF/F without raw-F rereads.
 - [ ] Run on a representative voltage session and freeze a golden MATLAB output.
 - [ ] Add session-level QC and numerical regression fixtures from that run.
 
