@@ -86,7 +86,7 @@ for p = 1:nPaths
 end
 
 rootPayload = struct();
-rootPayload.format_version = '0.2.1';
+rootPayload.format_version = '0.2.2';
 rootPayload.params = params;
 saveStructToH5(rootPayload, outputPath);
 
@@ -100,9 +100,11 @@ summary.path = repmat(struct(),1,nPaths);
 summary.timing = struct();
 summary.timing.path = repmat(emptyTiming(),1,nPaths);
 
-% Configure workers before the extraction pass. HDF5 writes remain serial.
-params = configureParallelPool(params);
-summary.params = params;
+% Start the process pool lazily only after at least one path has passed
+% metadata/ROI discovery. This avoids paying pool-startup cost for invalid
+% sessions (for example, a table whose raw sources contain no Voltage ROIs).
+parallelConfigured = false;
+totalVoltageRoisFound = 0;
 
 for pathIdx = 1:nPaths
     pathTimer = tic;
@@ -126,36 +128,63 @@ for pathIdx = 1:nPaths
     metadataTimer = tic;
     hFirstMDF = slap2.util.MultiDataFiles(firstSource);
     validateParsePlanCompatibility(hFirstMDF, pathIdx);
-    [masks, sourceRoiIdx] = getIntegrationMasks(hFirstMDF);
+    [masks, sourceRoiIdx, roiDiscovery] = discoverVoltageROIs( ...
+        hFirstMDF, params.zIdx, params.chIdx);
     sampleRateHz = resolveSampleRateHz(hFirstMDF);
     zDepth = resolveZDepth(hFirstMDF);
     canonicalMeta = getGeometryMeta(hFirstMDF);
     timing.metadata_s = timing.metadata_s + toc(metadataTimer);
 
-    if isempty(sourceRoiIdx)
-        warning('Voltage:NoIntegrationROIs', 'Path%d has no integration ROIs; skipping source datasets.', pathIdx);
+    nRois = size(masks,3);
+    totalVoltageRoisFound = totalVoltageRoisFound + nRois;
+    fprintf('Path%d acquisition ROIs: %d; Voltage integration ROIs: %d', ...
+        pathIdx, roiDiscovery.nAcquisitionROIs, nRois);
+    if nRois > 0
+        fprintf(' (source ROI indices %s)\n', mat2str(sourceRoiIdx));
+    else
+        fprintf('\n');
+        for candidateIdx = 1:roiDiscovery.nAcquisitionROIs
+            fprintf('  acquisition ROI %d: imagingMode=%s; integration TracePixels=%d\n', ...
+                candidateIdx, roiDiscovery.imagingMode{candidateIdx}, ...
+                roiDiscovery.integrationSuperPixelCounts(candidateIdx));
+        end
+        warning('Voltage:NoVoltageROIs', ...
+            ['Path%d has no acquisition ROIs that map to integration-mode ' ...
+             'samples in the SLAP2 parse plan; skipping source datasets.'], pathIdx);
     end
 
-    nRois = size(masks,3);
     [trialOffsets, totalSamples] = computeTrialOffsets(trialNumSamples(pathIdx,:));
     pathName = sprintf('/Path%d',pathIdx);
-    outputInitTimer = tic;
-    initializePathOutput(outputPath, pathName, masks, sourceRoiIdx, ...
-        sampleRateHz, zDepth, trialNumSamples(pathIdx,:), analysisEpoch(pathIdx,:), ...
-        firstLine(pathIdx,:), lastLine(pathIdx,:), trialOffsets, params);
-    timing.output_init_s = timing.output_init_s + toc(outputInitTimer);
 
+    summary.path(pathIdx).nAcquisitionROIs = roiDiscovery.nAcquisitionROIs;
     summary.path(pathIdx).nROIs = nRois;
+    summary.path(pathIdx).sourceRoiIdx = sourceRoiIdx;
+    summary.path(pathIdx).roiDiscovery = roiDiscovery;
     summary.path(pathIdx).sampleRateHz = sampleRateHz;
     summary.path(pathIdx).totalSamples = totalSamples;
     summary.path(pathIdx).trialNumSamples = trialNumSamples(pathIdx,:);
     summary.path(pathIdx).trialEpoch = analysisEpoch(pathIdx,:);
 
     if nRois == 0
+        % Do not create per-sample HDF5 metadata for an empty path. On long
+        % continuous sessions frame_line_idxs/sample_epoch can be hundreds of MB.
         delete(hFirstMDF); clear hFirstMDF
         timing.total_s = toc(pathTimer);
         summary.timing.path(pathIdx) = timing;
+        summary.path(pathIdx).timing = timing;
         continue
+    end
+
+    outputInitTimer = tic;
+    initializePathOutput(outputPath, pathName, masks, sourceRoiIdx, ...
+        sampleRateHz, zDepth, trialNumSamples(pathIdx,:), analysisEpoch(pathIdx,:), ...
+        firstLine(pathIdx,:), lastLine(pathIdx,:), trialOffsets, params);
+    timing.output_init_s = timing.output_init_s + toc(outputInitTimer);
+
+    if ~parallelConfigured
+        params = configureParallelPool(params);
+        summary.params = params;
+        parallelConfigured = true;
     end
 
     % Identify epochs for which one raw source contains every valid trial. Those
@@ -184,14 +213,18 @@ for pathIdx = 1:nPaths
         if sourceIdx == 1
             hMDF = hFirstMDF;
             hFirstMDF = [];
+            % Metadata/ROI discovery was already performed on this exact handle.
+            sourceMasks = masks;
+            sourceRoiIdxNow = sourceRoiIdx;
         else
             sourceOpenTimer = tic;
             hMDF = slap2.util.MultiDataFiles(sourcePath);
             timing.source_open_s = timing.source_open_s + toc(sourceOpenTimer);
             validateParsePlanCompatibility(hMDF, pathIdx);
+            [sourceMasks, sourceRoiIdxNow] = discoverVoltageROIs( ...
+                hMDF, params.zIdx, params.chIdx);
         end
 
-        [sourceMasks, sourceRoiIdxNow] = getIntegrationMasks(hMDF);
         validateSourceCompatibility(pathIdx, sourceName, canonicalMeta, getGeometryMeta(hMDF), ...
             masks, sourceMasks, sourceRoiIdx, sourceRoiIdxNow, sampleRateHz, resolveSampleRateHz(hMDF));
 
@@ -270,6 +303,17 @@ for pathIdx = 1:nPaths
 end
 
 summary.timing.total_s = toc(runTimer);
+
+if totalVoltageRoisFound == 0
+    % Do not leave behind a superficially valid but scientifically empty output.
+    if exist(outputPath,'file') == 2
+        delete(outputPath);
+    end
+    error('Voltage:NoVoltageROIs', ...
+        ['No Voltage ROIs were found on any imaging path. Acquisition ROI masks ' ...
+         'were tested against integration-mode membership in each SLAP2 parse plan, ' ...
+         'and none mapped to integration samples. No fluorescence data were extracted.']);
+end
 
 fprintf('\nVoltage extraction complete in %.1f s:\n  %s\n', summary.timing.total_s, outputPath);
 end
@@ -441,47 +485,120 @@ error('Voltage:MissingDataFile','Could not find raw SLAP2 file: %s',filename);
 end
 
 
-function [masks, sourceRoiIdx] = getIntegrationMasks(hMDF)
+function [masks, sourceRoiIdx, discovery] = discoverVoltageROIs(hMDF,zIdx,chIdx)
+%DISCOVERVOLTAGEROIS Find acquisition ROIs that map to integration samples.
+%
+% Do not trust the optional ROI.imagingMode label as the scientific selector.
+% Legacy voltage recordings can contain valid integration ROIs whose metadata
+% label is absent or uses a different spelling/value. Instead, reconstruct each
+% acquisition ROI mask and ask the same SLAP2 Trace/parse-plan machinery used by
+% extraction whether that mask has integration-pixel mappings.
+%
+% Classification intentionally uses integrationPixels ONLY. The later raw-F
+% extraction still calls Trace.setPixelIdxs(mask,mask), preserving the optimized
+% legacy extraction calculation exactly.
 meta = hMDF.metaData;
+if ~isfield(meta,'AcquisitionContainer') || ...
+        ~isfield(meta.AcquisitionContainer,'ROIs') || ...
+        ~isfield(meta.AcquisitionContainer.ROIs,'rois')
+    error('Voltage:MissingAcquisitionROIs', ...
+        'SLAP2 metadata are missing AcquisitionContainer.ROIs.rois.');
+end
+
 rois = meta.AcquisitionContainer.ROIs.rois;
 if ~iscell(rois), rois = num2cell(rois); end
-isIntegration = false(1,numel(rois));
-for i = 1:numel(rois)
-    mode = getRoiField(rois{i},'imagingMode','');
-    isIntegration(i) = strcmpi(char(mode),'Integrate');
-end
-sourceRoiIdx = find(isIntegration);
-selected = rois(isIntegration);
+nAcquisitionRois = numel(rois);
 nRows = double(meta.dmdPixelsPerColumn);
 nCols = double(meta.dmdPixelsPerRow);
-masks = false(nRows,nCols,numel(selected));
-for i = 1:numel(selected)
-    stored = getRoiField(selected{i},'mask',[]);
-    if ~isempty(stored)
-        mask = logical(stored);
-        if ndims(mask)>2 && size(mask,3)==1, mask = mask(:,:,1); end
-        if isequal(size(mask),[nCols,nRows]), mask = mask.'; end
-        if ~isequal(size(mask),[nRows,nCols])
-            error('Voltage:UnexpectedMaskSize','ROI %d mask size is %s; expected [%d %d].', ...
-                sourceRoiIdx(i),mat2str(size(mask)),nRows,nCols);
-        end
-    else
-        shape = double(getRoiField(selected{i},'shapeData',[]));
-        if isempty(shape) || size(shape,2)<2
-            error('Voltage:MissingRoiMask','Integration ROI %d has no usable mask/shapeData.',sourceRoiIdx(i));
-        end
-        shape = round(shape(:,1:2));
-        valid = shape(:,1)>=1 & shape(:,1)<=nRows & shape(:,2)>=1 & shape(:,2)<=nCols;
-        shape = shape(valid,:);
-        mask = false(nRows,nCols);
-        if ~isempty(shape)
-            mask(sub2ind(size(mask),shape(:,1),shape(:,2))) = true;
-        end
+
+candidateMasks = false(nRows,nCols,nAcquisitionRois);
+isVoltage = false(1,nAcquisitionRois);
+integrationSuperPixelCounts = zeros(1,nAcquisitionRois);
+imagingMode = cell(1,nAcquisitionRois);
+
+for i = 1:nAcquisitionRois
+    roi = rois{i};
+    candidateMasks(:,:,i) = buildAcquisitionRoiMask(roi,nRows,nCols,i);
+    imagingMode{i} = safeRoiModeString(getRoiField(roi,'imagingMode',''));
+
+    % This performs parse-plan mapping only; TracePixel data are not loaded until
+    % Trace.process/processAsync. Therefore ROI discovery does not read the full
+    % fluorescence trace from disk.
+    hTrace = slap2.util.datafile.trace.Trace(hMDF,zIdx,chIdx);
+    hTrace.setPixelIdxs([],candidateMasks(:,:,i));
+    integrationSuperPixelCounts(i) = numel(hTrace.TracePixels);
+    isVoltage(i) = integrationSuperPixelCounts(i) > 0;
+    clear hTrace
+end
+
+sourceRoiIdx = find(isVoltage);
+masks = candidateMasks(:,:,isVoltage);
+
+discovery = struct();
+discovery.method = 'parse_plan_integration_membership';
+discovery.nAcquisitionROIs = nAcquisitionRois;
+discovery.nVoltageROIs = numel(sourceRoiIdx);
+discovery.sourceRoiIdx = sourceRoiIdx;
+discovery.integrationSuperPixelCounts = integrationSuperPixelCounts;
+discovery.imagingMode = imagingMode;
+end
+
+
+function mask = buildAcquisitionRoiMask(roi,nRows,nCols,sourceRoiIdx)
+stored = getRoiField(roi,'mask',[]);
+if ~isempty(stored)
+    mask = logical(stored);
+    if ndims(mask)>2 && size(mask,3)==1, mask = mask(:,:,1); end
+    if isequal(size(mask),[nCols,nRows]), mask = mask.'; end
+    if ~isequal(size(mask),[nRows,nCols])
+        error('Voltage:UnexpectedMaskSize', ...
+            'Acquisition ROI %d mask size is %s; expected [%d %d].', ...
+            sourceRoiIdx,mat2str(size(mask)),nRows,nCols);
     end
-    masks(:,:,i) = mask;
+else
+    shape = double(getRoiField(roi,'shapeData',[]));
+    if isempty(shape) || size(shape,2)<2
+        error('Voltage:MissingRoiMask', ...
+            'Acquisition ROI %d has no usable mask/shapeData.',sourceRoiIdx);
+    end
+    shape = round(shape(:,1:2));
+    valid = shape(:,1)>=1 & shape(:,1)<=nRows & shape(:,2)>=1 & shape(:,2)<=nCols;
+    if ~all(valid)
+        warning('Voltage:RoiShapeOutOfBounds', ...
+            'Acquisition ROI %d has %d out-of-bounds shapeData pixels; ignoring them.', ...
+            sourceRoiIdx,nnz(~valid));
+    end
+    shape = shape(valid,:);
+    mask = false(nRows,nCols);
+    if ~isempty(shape)
+        mask(sub2ind(size(mask),shape(:,1),shape(:,2))) = true;
+    end
+end
+
+if ~any(mask(:))
+    warning('Voltage:EmptyAcquisitionROI', ...
+        'Acquisition ROI %d produced an empty image-space mask.',sourceRoiIdx);
 end
 end
 
+
+function value = safeRoiModeString(value)
+try
+    if isempty(value)
+        value = '';
+    elseif ischar(value)
+        % preserve
+    elseif isstring(value) && isscalar(value)
+        value = char(value);
+    elseif isnumeric(value) || islogical(value)
+        value = mat2str(value);
+    else
+        value = char(string(value));
+    end
+catch
+    value = sprintf('<%s>',class(value));
+end
+end
 
 function value = getRoiField(roi,name,defaultValue)
 value = defaultValue;

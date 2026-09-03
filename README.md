@@ -91,6 +91,9 @@ The file intentionally resembles the useful parts of SILo's `experiment_summary.
 
 The MATLAB reference implementation is optimized around the common continuous-CYCLE voltage workflow:
 
+- acquisition ROIs are classified as Voltage ROIs by testing their masks against integration-mode membership in the SLAP2 parse plan; the optional `imagingMode` metadata label is retained only for diagnostics and is not used as the selector;
+- the process pool is started lazily only after a path has passed metadata and Voltage-ROI discovery; invalid/empty sessions therefore do not pay worker-startup cost;
+- per-sample HDF5 path metadata are not created for zero-ROI paths, avoiding large `frame_line_idxs`/`sample_epoch` writes when ROI discovery fails;
 - each distinct raw SLAP2 source file is opened once for extraction; the first source handle is reused after metadata/ROI discovery instead of being reopened;
 - integration ROIs are extracted in bounded asynchronous batches (`nWorkers`, `maxConcurrentROIs`);
 - repeated pseudo-trials from one continuous source are written as one contiguous HDF5 block per ROI whenever their source and output ranges are contiguous;
@@ -115,6 +118,21 @@ total_s
 
 Timing diagnostics are returned in the MATLAB `summary` structure rather than written into `VoltageSummary.h5`, keeping the scientific HDF5 output deterministic for later MATLAB/Python byte-parity work. For a normal single-source CYCLE epoch, `fallback_read_s` should be zero.
 
+
+### Voltage ROI discovery
+
+ROI discovery is intentionally based on the SLAP2 parse plan rather than an `imagingMode == "Integrate"` string comparison. For each acquisition ROI, `Voltage` reconstructs its stored mask (falling back to `shapeData` when necessary) and passes the mask as **integration pixels only** to `Trace.setPixelIdxs([], mask)`. The ROI is retained when the parse plan resolves one or more integration `TracePixel`s.
+
+This classification step does not load the full fluorescence trace. Actual raw-F extraction remains unchanged from the optimized legacy path and uses:
+
+```matlab
+hTrace.setPixelIdxs(mask, mask)
+```
+
+so the ROI-discovery fix does not alter the Trace calculation used for parity benchmarking.
+
+A path with zero Voltage ROIs is allowed when another path contains them. If no path contains any Voltage ROIs, `Voltage` deletes the empty output and raises `Voltage:NoVoltageROIs` instead of reporting a successful extraction.
+
 ## Voltage dF/F
 
 The default F0 model matches the robust pathway used in `vip-slap2-analysis`:
@@ -131,6 +149,17 @@ The saved `dff` signal is polarity-corrected so positive values correspond to po
 - ASAP7 / quenching: `(F0 - F) / F0`
 
 Set `indicatorName` and/or `indicatorDirection` explicitly. `auto` recognizes ASAP7 and ASAP8; unknown indicators fail rather than silently choosing a sign.
+
+
+## Legacy-session parity note
+
+The 2026-07-23 ASAP8 benchmark extraction used a Trace temporal window of **12 lines**, whereas the general repository default remains 16 lines. For direct raw-F comparison with that historical run, override:
+
+```matlab
+params = ASAP8_params(struct('traceWindow_lines',12,'overwrite',true));
+```
+
+Do not change this parameter between the legacy and new runs when testing numerical parity.
 
 ## Repository layout
 

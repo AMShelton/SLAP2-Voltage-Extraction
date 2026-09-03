@@ -20,3 +20,11 @@
 - [ ] Translate F0 and dF/F numerics.
 - [ ] Reproduce `VoltageSummary.h5` dataset shapes, dtypes, values, and metadata.
 - [ ] Compare MATLAB and Python outputs dataset-by-dataset, then pursue whole-file byte parity where HDF5 serialization permits it.
+
+
+## MATLAB reference hardening
+
+- Voltage ROI discovery uses parse-plan integration membership rather than an `imagingMode` string.
+- Zero-ROI paths are allowed individually; a session with zero Voltage ROIs across all paths fails and removes the empty output.
+- Parallel workers start only after ROI discovery succeeds.
+- Continuous single-source epochs use in-memory F0/dF/F and contiguous HDF5 writes; multi-source epochs retain the bounded HDF5 fallback.
