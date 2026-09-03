@@ -1,13 +1,10 @@
 # Tests
 
-Step 1 only includes smoke tests for repository structure and MATLAB parser diagnostics.
+Run from MATLAB after `setup`:
 
-Step 2 should add fixture-based tests for:
+```matlab
+results = runtests('tests');
+table(results)
+```
 
-- loading `trial_table.h5`
-- DMD/ROI identity and ordering
-- line-range slicing
-- continuous/multi-epoch behavior
-- voltage F0 and dF/F transforms
-- HDF5 schema, dtype, chunking, fill values, and attributes
-- deterministic reruns with the same input and parameters
+The synthetic tests do not require raw SLAP2 data. The next milestone is a golden-session integration test that runs `Voltage.m` against one representative session and validates the complete HDF5 output.

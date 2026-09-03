@@ -1,34 +1,12 @@
-# MATLAB
 *.asv
 *.m~
-*.autosave
-slprj/
-codegen/
-
-# Generated extraction outputs
-trial_table.h5
-*VoltageSummary*.h5
-*VoltageSummary*.mat
-*VoltageTraces*.h5
-experiment_summary.h5
-per_trial_summary.h5
-source_extraction/*.h5
-source_extraction/*.mat
-
-# Raw imaging data
+*.mat
 *.dat
 *.meta
 *.tif
 *.tiff
-
-# OS/editor
+*.h5
+!tests/fixtures/*.h5
+Voltage/
 .DS_Store
 Thumbs.db
-.vscode/
-.idea/
-
-# Python (future port)
-__pycache__/
-*.py[cod]
-.venv/
-.pytest_cache/

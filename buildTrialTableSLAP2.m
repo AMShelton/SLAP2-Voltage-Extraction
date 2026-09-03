@@ -155,6 +155,7 @@ slap2_info.first_line = [];
 slap2_info.last_line = [];
 slap2_info.trial_end_time_from_pc = [];
 slap2_info.trial_start_time_inferred = [];
+slap2_info.line_range_convention = 'inclusive'; % first_line and last_line are integer inclusive bounds
 
 trueTrialIx = 0;
 for eIx = 1:epoch %for each epoch
@@ -194,21 +195,27 @@ for eIx = 1:epoch %for each epoch
         for fileIx = 1:numel(DMD1files)
             nLinesTot = min(numLinesDMD1(fileIx), numLinesDMD2(fileIx));
             nTrialsInFile = ceil(nLinesTot/multiCycleLinesPerTrial);
-            trialEdges = linspace(1,nLinesTot+1, nTrialsInFile+1);
+            % Integer, non-overlapping inclusive trial bounds. Earlier versions
+            % stored the next edge directly in last_line, which made CYCLE ranges
+            % effectively half-open and could create one-sample overlaps when read
+            % as inclusive. Preserve every raw line exactly once.
+            trialEdges = round(linspace(1,nLinesTot+1, nTrialsInFile+1));
 
             for trialIx = 1:nTrialsInFile
                 trueTrialIx = trueTrialIx+1;
                 trialTable.filename{1,trueTrialIx} = DMD1files(fileIx).name;
                 trialTable.filename{2,trueTrialIx} = DMD2files(fileIx).name;
-                slap2_info.first_line(1,trueTrialIx) = trialEdges(trialIx);
-                slap2_info.first_line(2,trueTrialIx) = trialEdges(trialIx);
-                slap2_info.last_line(1,trueTrialIx) = trialEdges(trialIx+1);
-                slap2_info.last_line(2,trueTrialIx) = trialEdges(trialIx+1);
+                firstLineThisTrial = trialEdges(trialIx);
+                lastLineThisTrial = trialEdges(trialIx+1)-1;
+                slap2_info.first_line(1,trueTrialIx) = firstLineThisTrial;
+                slap2_info.first_line(2,trueTrialIx) = firstLineThisTrial;
+                slap2_info.last_line(1,trueTrialIx) = lastLineThisTrial;
+                slap2_info.last_line(2,trueTrialIx) = lastLineThisTrial;
                 trialTable.true_trial_ix(1:nDMDs, trueTrialIx) = trueTrialIx;
                 trialTable.epoch(1:nDMDs, trueTrialIx) = eIx;
 
-                slap2_info.trial_end_time_from_pc(trueTrialIx) = DMD1files(fileIx).datenum - datenum(duration(0,0,(numLinesDMD1(fileIx)-trialEdges(trialIx+1)).*linePeriod_s));
-                slap2_info.trial_start_time_inferred(trueTrialIx) = DMD1files(fileIx).datenum - datenum(duration(0,0,(numLinesDMD1(fileIx)-trialEdges(trialIx)).*linePeriod_s));
+                slap2_info.trial_end_time_from_pc(trueTrialIx) = DMD1files(fileIx).datenum - datenum(duration(0,0,(numLinesDMD1(fileIx)-lastLineThisTrial).*linePeriod_s));
+                slap2_info.trial_start_time_inferred(trueTrialIx) = DMD1files(fileIx).datenum - datenum(duration(0,0,(numLinesDMD1(fileIx)-firstLineThisTrial).*linePeriod_s));
             end
         end
     else %triggered acquisition more+

@@ -2,22 +2,18 @@ function tests = test_repository_layout
 tests = functiontests(localfunctions);
 end
 
-function testCoreEntryPointsExist(testCase)
-repoRoot = fileparts(fileparts(mfilename('fullpath')));
-verifyEqual(testCase, exist(fullfile(repoRoot, 'buildTrialTableSLAP2.m'), 'file'), 2);
-verifyEqual(testCase, exist(fullfile(repoRoot, 'source_extraction', 'extractDendrites.m'), 'file'), 2);
-end
-
-function testSourceFilesParse(testCase)
-repoRoot = fileparts(fileparts(mfilename('fullpath')));
-files = {
-    fullfile(repoRoot, 'buildTrialTableSLAP2.m')
-    fullfile(repoRoot, 'source_extraction', 'extractDendrites.m')
-    };
-for i = 1:numel(files)
-    msgs = checkcode(files{i}, '-id');
-    ids = {msgs.id};
-    parseLike = cellfun(@(x) ~isempty(regexpi(x, 'parse|syntax', 'once')), ids);
-    verifyFalse(testCase, any(parseLike), sprintf('Parser-like MATLAB diagnostics in %s', files{i}));
+function testRequiredFiles(testCase)
+root = fileparts(fileparts(mfilename('fullpath')));
+required = { ...
+    'Voltage.m', ...
+    'buildTrialTableSLAP2.m', ...
+    fullfile('source_extraction','computeVoltageF0.m'), ...
+    fullfile('source_extraction','computeVoltageDFF.m'), ...
+    fullfile('dependencies','io','loadStructFromH5.m'), ...
+    fullfile('dependencies','io','saveStructToH5.m'), ...
+    fullfile('dependencies','gui','setParams.m'), ...
+    fullfile('dependencies','gui','optionsGUI.m')};
+for k = 1:numel(required)
+    verifyEqual(testCase,exist(fullfile(root,required{k}),'file'),2,required{k});
 end
 end
