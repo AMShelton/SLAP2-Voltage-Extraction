@@ -1,0 +1,189 @@
+{
+  "source_file": "experiment_summary(1).h5",
+  "source_modality": "GIAnT glutamate",
+  "Path1": {
+    "n_sources": 21,
+    "n_frames": 60001,
+    "n_channels": 2,
+    "datasets": {
+      "Z_depths": {
+        "shape_h5py": [
+          1,
+          1
+        ],
+        "dtype": "float64"
+      },
+      "frame_info/trial_num_frames": {
+        "shape_h5py": [
+          1,
+          1
+        ],
+        "dtype": "int32"
+      },
+      "frame_info/frame_line_idxs": {
+        "shape_h5py": [
+          1,
+          60001
+        ],
+        "dtype": "int32"
+      },
+      "global/F": {
+        "shape_h5py": [
+          60001,
+          2
+        ],
+        "dtype": "float64"
+      },
+      "sources/spatial/coords": {
+        "shape_h5py": [
+          3,
+          21
+        ],
+        "dtype": "float64"
+      },
+      "sources/spatial/profiles": {
+        "shape_h5py": [
+          640,
+          379,
+          1,
+          21
+        ],
+        "dtype": "float32"
+      },
+      "sources/temporal/F0": {
+        "shape_h5py": [
+          60001,
+          2,
+          21
+        ],
+        "dtype": "float64"
+      },
+      "sources/temporal/SNR": {
+        "shape_h5py": [
+          1,
+          21
+        ],
+        "dtype": "float64"
+      },
+      "sources/temporal/dF_ls": {
+        "shape_h5py": [
+          60001,
+          2,
+          21
+        ],
+        "dtype": "float64"
+      },
+      "sources/temporal/dF_denoised": {
+        "shape_h5py": [
+          60001,
+          2,
+          21
+        ],
+        "dtype": "float64"
+      },
+      "sources/temporal/events": {
+        "shape_h5py": [
+          60001,
+          2,
+          21
+        ],
+        "dtype": "float64"
+      }
+    }
+  },
+  "Path2": {
+    "n_sources": 11,
+    "n_frames": 60001,
+    "n_channels": 2,
+    "datasets": {
+      "Z_depths": {
+        "shape_h5py": [
+          1,
+          1
+        ],
+        "dtype": "float64"
+      },
+      "frame_info/trial_num_frames": {
+        "shape_h5py": [
+          1,
+          1
+        ],
+        "dtype": "int32"
+      },
+      "frame_info/frame_line_idxs": {
+        "shape_h5py": [
+          1,
+          60001
+        ],
+        "dtype": "int32"
+      },
+      "global/F": {
+        "shape_h5py": [
+          60001,
+          2
+        ],
+        "dtype": "float64"
+      },
+      "sources/spatial/coords": {
+        "shape_h5py": [
+          3,
+          11
+        ],
+        "dtype": "float64"
+      },
+      "sources/spatial/profiles": {
+        "shape_h5py": [
+          334,
+          337,
+          1,
+          11
+        ],
+        "dtype": "float32"
+      },
+      "sources/temporal/F0": {
+        "shape_h5py": [
+          60001,
+          2,
+          11
+        ],
+        "dtype": "float64"
+      },
+      "sources/temporal/SNR": {
+        "shape_h5py": [
+          1,
+          11
+        ],
+        "dtype": "float64"
+      },
+      "sources/temporal/dF_ls": {
+        "shape_h5py": [
+          60001,
+          2,
+          11
+        ],
+        "dtype": "float64"
+      },
+      "sources/temporal/dF_denoised": {
+        "shape_h5py": [
+          60001,
+          2,
+          11
+        ],
+        "dtype": "float64"
+      },
+      "sources/temporal/events": {
+        "shape_h5py": [
+          60001,
+          2,
+          11
+        ],
+        "dtype": "float64"
+      }
+    }
+  },
+  "axis_contract": {
+    "spatial_profiles_h5py": "[X,Y,Z,source]",
+    "spatial_coords_h5py": "[3,source]",
+    "temporal_h5py": "[time,channel,source]"
+  }
+}
