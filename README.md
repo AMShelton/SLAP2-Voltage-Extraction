@@ -173,7 +173,11 @@ SLAP2-Voltage-Extraction/
 │   └── computeVoltageDFF.m
 ├── dependencies/
 │   ├── io/
-│   └── gui/
+│   ├── gui/
+│   └── slap2_trace/
+│       └── +slap2/+util/+datafile/+trace/
+│           ├── Trace.m
+│           └── TracePixel.m
 ├── presets/
 │   ├── ASAP7_params.m
 │   └── ASAP8_params.m
@@ -181,17 +185,23 @@ SLAP2-Voltage-Extraction/
 └── docs/
 ```
 
-## External SLAP2 dependency
+## SLAP2 dependencies
 
-This repo does not vendor the full SLAP2 reader. Your MATLAB environment must resolve:
+The full SLAP2 binary reader remains external. Your MATLAB environment must resolve:
 
 ```matlab
 slap2.Slap2DataFile
 slap2.util.MultiDataFiles
-slap2.util.datafile.trace.Trace
 ```
 
-Run `setup` to add this repository to the MATLAB path and report missing SLAP2 classes.
+The two classes that define the Voltage trace extraction kernel are pinned in this repository under `dependencies/slap2_trace`:
+
+```matlab
+slap2.util.datafile.trace.Trace
+slap2.util.datafile.trace.TracePixel
+```
+
+Run `setup` before `Voltage`. It adds the package root and prints the exact Trace classes MATLAB resolves, which makes accidental path/version mismatches visible.
 
 ## Development sequence
 

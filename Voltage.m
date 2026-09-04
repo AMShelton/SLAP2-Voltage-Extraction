@@ -22,6 +22,7 @@ function summary = Voltage(dr_or_pathToTrialTable, paramsIn)
 % rereading raw_f from HDF5. A bounded HDF5 fallback is retained only for epochs
 % assembled from multiple raw source files. No motion correction is performed.
 
+bootstrapRepositoryPaths();
 runTimer = tic;
 
 if nargin < 1 || isempty(dr_or_pathToTrialTable)
@@ -85,8 +86,9 @@ for p = 1:nPaths
     end
 end
 
+try
 rootPayload = struct();
-rootPayload.format_version = '0.2.2';
+rootPayload.format_version = '0.2.3';
 rootPayload.params = params;
 saveStructToH5(rootPayload, outputPath);
 
@@ -316,6 +318,26 @@ if totalVoltageRoisFound == 0
 end
 
 fprintf('\nVoltage extraction complete in %.1f s:\n  %s\n', summary.timing.total_s, outputPath);
+catch ME
+    cleanupPartialOutput(outputPath,ME);
+    rethrow(ME);
+end
+end
+
+function cleanupPartialOutput(outputPath,originalError)
+%CLEANUPPARTIALOUTPUT Remove an incomplete HDF5 product after any failed run.
+if exist(outputPath,'file') ~= 2
+    return
+end
+try
+    delete(outputPath);
+    fprintf(2,'Removed incomplete Voltage output after failure: %s\n',outputPath);
+catch cleanupError
+    warning('Voltage:PartialOutputCleanupFailed', ...
+        ['Voltage failed with %s, and the incomplete output could not be removed: %s. ' ...
+         'Delete it manually before rerunning.'], ...
+        originalError.identifier, cleanupError.message);
+end
 end
 
 function path = resolveTrialTablePath(inputPath)
@@ -1027,6 +1049,36 @@ for roiIdx = 1:nRois
         h5write(filename,dffPath,reshape(dff,1,1,nEpoch),[roiIdx 1 firstOffset],[1 1 nEpoch]);
         timing.write_s = timing.write_s + toc(writeTimer);
     end
+end
+end
+
+
+function bootstrapRepositoryPaths()
+%BOOTSTRAPREPOSITORYPATHS Make direct `Voltage` calls self-contained.
+% Add only repository-local helper/package roots. The full SLAP2 binary reader
+% (MultiDataFiles/Slap2DataFile) remains an external installation.
+root = fileparts(mfilename('fullpath'));
+paths = { ...
+    fullfile(root,'source_extraction'), ...
+    fullfile(root,'dependencies','io'), ...
+    fullfile(root,'dependencies','gui'), ...
+    fullfile(root,'dependencies','slap2_trace'), ...
+    fullfile(root,'presets')};
+for k = 1:numel(paths)
+    if exist(paths{k},'dir') == 7
+        addpath(paths{k},'-begin');
+    end
+end
+
+if isempty(which('slap2.util.MultiDataFiles'))
+    error('Voltage:MissingSLAP2Reader', ...
+        ['Cannot resolve slap2.util.MultiDataFiles. Install/add the full SLAP2 ' ...
+         'binary reader package before running Voltage.']);
+end
+if isempty(which('slap2.util.datafile.trace.Trace')) || ...
+        isempty(which('slap2.util.datafile.trace.TracePixel'))
+    error('Voltage:MissingVendoredTraceKernel', ...
+        'Repository-local Trace/TracePixel classes did not resolve. Run setup for diagnostics.');
 end
 end
 
