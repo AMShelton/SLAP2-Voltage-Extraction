@@ -1,26 +1,18 @@
-# MATLAB dependency boundary
+# Dependencies
 
-This repository intentionally does not vendor the whole GIAnT-MATLAB repository.
+This repository vendors the small MATLAB components needed to keep the Voltage reference extraction reproducible:
 
-The current files rely on a small set of external functions/classes. During Step 2 we should either vendor the stable helper functions or replace them with project-owned equivalents so that MATLAB/Python parity is under our control.
+- `io/`: HDF5 struct I/O and ScanImage TIFF readers used by `buildTrialTableSLAP2.m`.
+- `gui/`: the parameter GUI and `setParams('Voltage', ...)`.
+- `slap2_trace/`: the pinned `slap2.util.datafile.trace.Trace` and `TracePixel` classes used by Voltage ROI discovery and raw-fluorescence extraction.
 
-## GIAnT-compatible I/O helpers
+The full SLAP2 binary reader remains **external**. MATLAB must already resolve:
 
-From the `fix/aind-slap2-dynamic-data` branch of `AMShelton/GIAnT-MATLAB`:
+```matlab
+which slap2.Slap2DataFile -all
+which slap2.util.MultiDataFiles -all
+```
 
-- `dependencies/io/saveStructToH5.m` — required by `buildTrialTableSLAP2.m`
-- `dependencies/io/loadStructFromH5.m` — planned canonical reader for `trial_table.h5`
-- `dependencies/io/ScanImageTiffWrapper.m`
-- `dependencies/io/ScanImageTiffDataWrapper.m`
+Run `setup` before `Voltage`. `setup` adds the vendored trace-package root and prints the exact `Trace`/`TracePixel` files MATLAB resolves.
 
-## Optional interactive helpers
-
-- `dependencies/gui/setParams.m`
-- `dependencies/gui/optionsGUI.m`
-- `dependencies/gui/drawROIs.m`
-
-The planned voltage-specific parameter definitions should eventually live in this repository rather than depending on GIAnT's SILo parameter table.
-
-## External SLAP2/ScanImage packages
-
-The extractor currently calls the SLAP2 Trace backend (`slap2.util.MultiDataFiles`, `slap2.util.datafile.trace.Trace`) and a ScanImage TIFF reader. Exact package/commit pinning should be recorded before the reference MATLAB run used for Python equivalence testing.
+The numerical `TracePixel.process` extraction kernel is retained from the supplied SLAP2 implementation. Its asynchronous pool bootstrap uses MATLAB's current `parpool` directly rather than the ScanImage/MOST `ParallelPoolManager`, removing an otherwise unnecessary environment dependency without changing the trace calculation itself.
