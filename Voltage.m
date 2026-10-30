@@ -231,6 +231,37 @@ for pathIdx = 1:nPaths
             masks, sourceMasks, sourceRoiIdx, sourceRoiIdxNow, sampleRateHz, resolveSampleRateHz(hMDF));
 
         completeEpochIds = completeEpochsForSource(sourceTrials, validTrials, analysisEpoch(pathIdx,:));
+
+        % Motion censoring from the online xy offsets in the SLAP2 line headers.
+        % One line-resolution mask per source; dff/f0 are NaN where censored,
+        % raw_f is left intact, and the mask is saved in frame_info/motion_censor.
+        epochMasks = cell(1,numel(completeEpochIds));
+        if params.motionCensorEnable
+            [motionMask, motionInfo] = computeSourceMotionMask(hMDF, params, sampleRateHz);
+            writeMotionMaskSlices(outputPath, pathName, motionMask, sourceTrials, ...
+                firstLine(pathIdx,:), lastLine(pathIdx,:), trialOffsets, trialNumSamples(pathIdx,:));
+            for k = 1:numel(completeEpochIds)
+                epochTrialsK = sourceTrials(analysisEpoch(pathIdx,sourceTrials) == completeEpochIds(k));
+                epochMasks{k} = concatenateTraceTrials(single(motionMask), epochTrialsK, ...
+                    firstLine(pathIdx,:), lastLine(pathIdx,:), trialNumSamples(pathIdx,:)) > 0.5;
+            end
+            fprintf('  Motion censoring: %.2f%% of %s censored (scale %.2f um, threshold %.2f um)\n', ...
+                100*motionInfo.fractionCensored, sourceName, motionInfo.scale_um, motionInfo.threshold_um);
+            if motionInfo.fractionCensored > params.motionMaxFracCensored
+                warning('Voltage:MotionCensorHigh', ...
+                    '%.1f%% of %s is motion-censored (limit %.1f%%).', ...
+                    100*motionInfo.fractionCensored, sourceName, 100*params.motionMaxFracCensored);
+            end
+            summary.path(pathIdx).motion(sourceIdx) = struct( ...
+                'source',sourceName, ...
+                'fractionCensored',motionInfo.fractionCensored, ...
+                'scale_um',motionInfo.scale_um, ...
+                'threshold_um',motionInfo.threshold_um, ...
+                'numCycles',motionInfo.numCycles, ...
+                'linesPerCycle',motionInfo.linesPerCycle);
+            clear motionMask motionInfo
+        end
+
         batches = makeBatches(1:nRois, params.maxConcurrentROIs);
         for batchIdx = 1:numel(batches)
             batch = batches{batchIdx};
@@ -261,22 +292,34 @@ for pathIdx = 1:nPaths
                 timing.raw_write_s = timing.raw_write_s + toc(rawWriteTimer);
 
                 % Fast path: derive F0 and dF/F while raw F is still in memory.
-                for epochId = reshape(completeEpochIds,1,[])
+                for epochK = 1:numel(completeEpochIds)
+                    epochId = completeEpochIds(epochK);
                     epochTrials = sourceTrials(analysisEpoch(pathIdx,sourceTrials) == epochId);
                     rawEpoch = concatenateTraceTrials(trace, epochTrials, ...
                         firstLine(pathIdx,:), lastLine(pathIdx,:), trialNumSamples(pathIdx,:));
 
                     derivedTimer = tic;
-                    [f0,~] = computeVoltageF0(rawEpoch,sampleRateHz,params);
-                    [dff,~] = computeVoltageDFF(rawEpoch,f0,params.indicatorName, ...
+                    % Censored samples are removed before F0 so they cannot bias the baseline.
+                    rawForDerived = rawEpoch;
+                    epochCensor = epochMasks{epochK};
+                    censorEpoch = params.motionCensorEnable && any(epochCensor);
+                    if censorEpoch
+                        rawForDerived(epochCensor) = NaN;
+                    end
+                    [f0,~] = computeVoltageF0(rawForDerived,sampleRateHz,params);
+                    [dff,~] = computeVoltageDFF(rawForDerived,f0,params.indicatorName, ...
                         params.indicatorDirection,params.precision);
+                    if censorEpoch
+                        f0(epochCensor) = NaN;
+                        dff(epochCensor) = NaN;
+                    end
                     timing.derived_compute_s = timing.derived_compute_s + toc(derivedTimer);
 
                     derivedWriteTimer = tic;
                     writeDerivedEpoch(outputPath,pathName,roiIdx,epochTrials,trialOffsets, ...
                         trialNumSamples(pathIdx,:),f0,dff);
                     timing.derived_write_s = timing.derived_write_s + toc(derivedWriteTimer);
-                    clear rawEpoch f0 dff
+                    clear rawEpoch rawForDerived f0 dff
                 end
                 clear trace
             end
@@ -731,6 +774,10 @@ if totalSamples > 0
         'ChunkSize',[min(totalSamples,params.h5ChunkSamples) 1]);
     h5create(filename,[pathName '/frame_info/sample_epoch'],[totalSamples 1],'Datatype','int32', ...
         'ChunkSize',[min(totalSamples,params.h5ChunkSamples) 1]);
+    if params.motionCensorEnable
+        h5create(filename,[pathName '/frame_info/motion_censor'],[totalSamples 1],'Datatype','uint8', ...
+            'ChunkSize',[min(totalSamples,params.h5ChunkSamples) 1],'FillValue',uint8(0));
+    end
     for t = 1:numel(trialLengths)
         n = trialLengths(t);
         if n <= 0, continue, end
@@ -889,6 +936,36 @@ end
 end
 
 
+function writeMotionMaskSlices(filename,pathName,lineMask,trialIndices,firstLine,lastLine,trialOffsets,trialLengths)
+%WRITEMOTIONMASKSLICES Save one source's motion-censor mask on the output sample axis.
+dset = [pathName '/frame_info/motion_censor'];
+trials = sort(reshape(trialIndices,1,[]));
+trials = trials(trialLengths(trials) > 0);
+if isempty(trials), return, end
+if trialsAreContiguousInSourceAndOutput(trials,firstLine,lastLine,trialOffsets,trialLengths)
+    n = sum(trialLengths(trials));
+    a = round(firstLine(trials(1)));
+    b = round(lastLine(trials(end)));
+    if a < 1 || b > numel(lineMask) || b < a || (b-a+1) ~= n
+        error('Voltage:MotionMaskLengthMismatch', ...
+            'Motion mask range [%d %d] does not match %d samples (mask length %d).',a,b,n,numel(lineMask));
+    end
+    h5write(filename,dset,uint8(lineMask(a:b)),[trialOffsets(trials(1)) 1],[n 1]);
+    return
+end
+for t = trials
+    n = trialLengths(t);
+    a = round(firstLine(t));
+    b = round(lastLine(t));
+    if a < 1 || b > numel(lineMask) || b < a || (b-a+1) ~= n
+        error('Voltage:MotionMaskLengthMismatch', ...
+            'Trial%d motion mask range [%d %d] does not match %d samples (mask length %d).',t,a,b,n,numel(lineMask));
+    end
+    h5write(filename,dset,uint8(lineMask(a:b)),[trialOffsets(t) 1],[n 1]);
+end
+end
+
+
 function tf = trialsAreContiguousInSourceAndOutput(trials,firstLine,lastLine,trialOffsets,trialLengths)
 tf = true;
 if numel(trials) <= 1, return, end
@@ -1040,8 +1117,18 @@ for roiIdx = 1:nRois
         timing.read_s = timing.read_s + toc(readTimer);
 
         computeTimer = tic;
+        censor = false(size(raw));
+        if params.motionCensorEnable
+            censor = reshape(h5read(filename,[pathName '/frame_info/motion_censor'], ...
+                [firstOffset 1],[nEpoch 1]),[],1) > 0;
+            raw(censor) = NaN;
+        end
         [f0,~] = computeVoltageF0(raw,sampleRateHz,params);
         [dff,~] = computeVoltageDFF(raw,f0,params.indicatorName,params.indicatorDirection,params.precision);
+        if any(censor)
+            f0(censor) = NaN;
+            dff(censor) = NaN;
+        end
         timing.compute_s = timing.compute_s + toc(computeTimer);
 
         writeTimer = tic;
@@ -1063,6 +1150,7 @@ paths = { ...
     fullfile(root,'dependencies','io'), ...
     fullfile(root,'dependencies','gui'), ...
     fullfile(root,'dependencies','slap2_trace'), ...
+    fullfile(root,'dependencies','slap2_motion'), ...
     fullfile(root,'presets')};
 for k = 1:numel(paths)
     if exist(paths{k},'dir') == 7
