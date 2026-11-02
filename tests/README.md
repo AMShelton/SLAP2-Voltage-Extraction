@@ -19,8 +19,8 @@ table(results)
 assertSuccess(results)
 ```
 
-On a workstation with Git and MATLAB on `PATH`, update the
-`python_translation` branch and run the same suite with:
+From a cloned checkout on a workstation with Git and MATLAB on `PATH`, update
+the `python_translation` branch and run the same suite with:
 
 ```bash
 bash run_matlab_tests.sh
