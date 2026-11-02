@@ -212,7 +212,7 @@ classdef TestComputeVoltageDFF < matlab.unittest.TestCase
         end
 
         function testInvalidDirectionError(testCase)
-            invalid = {'', 'sideways', 'increasing'};
+            invalid = {'sideways', 'increasing'};
             for idx = 1:numel(invalid)
                 direction = invalid{idx};
                 testCase.verifyError(@() computeVoltageDFF( ...

@@ -69,9 +69,9 @@ classdef MultiDataFiles < handle
             obj.hDataFiles = struct('filename', filename);
 
             if contains(filename, 'no_voltage', 'IgnoreCase', true)
-                obj.zPixelReplacementMaps = {[0 1]};
+                obj.zPixelReplacementMaps = {uint32([0 1])};
             else
-                obj.zPixelReplacementMaps = {[0 5]};
+                obj.zPixelReplacementMaps = {uint32([0 5])};
             end
         end
     end

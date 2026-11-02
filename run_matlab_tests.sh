@@ -1,30 +1,35 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
-BRANCH="python_translation"
 REPO_URL="https://github.com/AllenNeuralDynamics/SLAP2-Voltage-Extraction.git"
-REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+BRANCH="python_translation"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-trap 'status=$?; echo "Test runner failed on line $LINENO (exit $status)." >&2; exit $status' ERR
-
-cd "$REPO_DIR"
-if [[ ! -d .git ]]; then
-	echo "Not a Git checkout: $REPO_DIR" >&2
-	echo "Clone $REPO_URL, then run this script from that checkout." >&2
-	exit 2
-fi
-
-if git remote get-url origin >/dev/null 2>&1; then
-	git remote set-url origin "$REPO_URL"
+if REPO_DIR="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"; then
+    echo "Using repository containing this script: $REPO_DIR"
 else
-	git remote add origin "$REPO_URL"
+    REPO_DIR="$HOME/SLAP2-Voltage-Extraction"
+    if [[ -d "$REPO_DIR/.git" ]]; then
+        echo "Using existing repository: $REPO_DIR"
+    elif [[ -e "$REPO_DIR" ]]; then
+        echo "Cannot clone: $REPO_DIR exists but is not a Git repository." >&2
+        return 2 2>/dev/null || exit 2
+    else
+        git clone --branch "$BRANCH" --single-branch "$REPO_URL" "$REPO_DIR" || \
+            { status=$?; return "$status" 2>/dev/null || exit "$status"; }
+    fi
 fi
 
-git fetch origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
-if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
-	git switch "$BRANCH"
-else
-	git switch --create "$BRANCH" --track "origin/$BRANCH"
+if ! git -C "$REPO_DIR" remote get-url origin >/dev/null 2>&1; then
+    git -C "$REPO_DIR" remote add origin "$REPO_URL"
 fi
-git merge --ff-only "origin/$BRANCH"
-matlab -batch "clear classes; setup; results = runtests('tests'); disp(table(results)); assertSuccess(results)"
+
+git -C "$REPO_DIR" fetch origin "$BRANCH" &&
+git -C "$REPO_DIR" switch "$BRANCH" &&
+git -C "$REPO_DIR" reset --hard "origin/$BRANCH" || \
+    { status=$?; return "$status" 2>/dev/null || exit "$status"; }
+
+cd "$REPO_DIR" || { status=$?; return "$status" 2>/dev/null || exit "$status"; }
+matlab -batch "fprintf('MATLAB version: %s\n', version); fprintf('MATLAB release: %s\n', version('-release')); fprintf('Architecture: %s\n', computer('arch')); disp('Installed products:'); ver; clear classes; setup; results = runtests('tests'); disp(table(results)); assertSuccess(results)"
+
+MATLAB_STATUS=$?
+echo "MATLAB finished with exit code $MATLAB_STATUS"

@@ -98,8 +98,9 @@ classdef TestTracePixel < matlab.unittest.TestCase
         function testProcessAggregatesPixelsBeforeNormalization(testCase)
             first = testCase.loadedPixel(single(10), single(1/2));
             second = testCase.loadedPixel(single(20), single(1/2));
+            pixels = [first; second];
 
-            [~, trace] = [first; second].process(1, 1);
+            [~, trace] = pixels.process(1, 1);
 
             testCase.verifyEqual(trace, single(15 * ones(4, 1)), ...
                 'AbsTol', single(1e-5));

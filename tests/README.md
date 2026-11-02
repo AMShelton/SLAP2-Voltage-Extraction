@@ -4,7 +4,7 @@ This directory contains synthetic MATLAB characterization tests for the current 
 
 ## Requirements
 
-- MATLAB R2024b is the reference runtime.
+- MATLAB R2023b Update 7 on Linux is the characterization reference runtime.
 - Run from the repository root.
 - No raw SLAP2 session is required for the synthetic suite.
 - Parallel Computing Toolbox is not needed unless parallel tests are added.

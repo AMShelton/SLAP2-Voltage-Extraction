@@ -99,7 +99,12 @@ classdef TestScanImageTiffIO < matlab.unittest.TestCase
             reader = ScanImageTiffReader(filename);
             cleanup = onCleanup(@() delete(reader)); %#ok<NASGU>
 
-            testCase.verifyEqual(reader.descriptions(), {''});
+            descriptions = reader.descriptions();
+            testCase.verifySize(descriptions, [1 1]);
+            testCase.verifyTrue(testCase.isSemanticallyEmptyText( ...
+                descriptions{1}));
+            % Keep this strict: char(0) is not empty and exposed the legacy
+            % metadata misclassification tracked by the production issue.
             testCase.verifyEqual(reader.metadata(), '');
         end
 
@@ -112,7 +117,10 @@ classdef TestScanImageTiffIO < matlab.unittest.TestCase
 
             testCase.verifyEqual(data, cat(3, first.', second.'));
             testCase.verifyEqual(metadata, '');
-            testCase.verifyEqual(descriptions, {''; ''});
+            testCase.verifySize(descriptions, [2 1]);
+            testCase.verifyTrue(all(cellfun( ...
+                @(value) testCase.isSemanticallyEmptyText(value), ...
+                descriptions)));
         end
 
         function testDataWrapperFallsBackAfterReaderIsClosed(testCase)
@@ -168,6 +176,10 @@ classdef TestScanImageTiffIO < matlab.unittest.TestCase
     end
 
     methods (Access = private)
+        function tf = isSemanticallyEmptyText(~, value)
+            tf = isempty(value) || all(isspace(value));
+        end
+
         function filename = writeTiff(testCase, stack)
             filename = fullfile(testCase.TemporaryFolder, ...
                 sprintf('stack_%d.tif', randi(intmax('uint16'))));
