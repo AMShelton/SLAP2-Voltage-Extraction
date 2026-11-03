@@ -2,6 +2,11 @@ function tests = test_computeVoltageDFF
 tests = functiontests(localfunctions);
 end
 
+function setup(~)
+testsDir = fileparts(mfilename('fullpath'));
+addpath(fullfile(fileparts(testsDir),'source_extraction'));
+end
+
 function testASAP8(testCase)
 raw = single([100 110 90]);
 f0 = single([100 100 100]);

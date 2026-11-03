@@ -2,6 +2,13 @@ function tests = test_computeVoltageF0
 tests = functiontests(localfunctions);
 end
 
+function setup(~)
+testsDir = fileparts(mfilename('fullpath'));
+repoRoot = fileparts(testsDir);
+addpath(fullfile(repoRoot,'source_extraction'));
+addpath(fullfile(repoRoot,'dependencies','gui'));
+end
+
 function testStaticConstant(testCase)
 params = setParams('Voltage',struct('f0Method','static','f0Percentile',50,'precision','single'));
 raw = single(5*ones(1,100));

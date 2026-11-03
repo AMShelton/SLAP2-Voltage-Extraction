@@ -33,7 +33,7 @@ classdef ScanImageTiffReader < handle
         ndType_              % integer matching the C enum nd_type
         bytesPerSample_ = 0
 
-        endOfImageBlock_ = 0
+        endOfTiffData_    = 0
         fileSize_        = 0
     end
 
@@ -270,6 +270,7 @@ classdef ScanImageTiffReader < handle
 
             offset   = obj.firstIfdOffset_;
             planeIdx = 0;
+            maxEnd   = 0;
 
             while offset ~= 0
                 planeIdx = planeIdx + 1;
@@ -286,6 +287,12 @@ classdef ScanImageTiffReader < handle
                     dataFieldOff, dataFieldSz, entryStart);
 
                 strips = obj.readStripInfo_(tags);
+                maxEnd = max(maxEnd, entryStart + nentries * entrySz + ...
+                    ScanImageTiffReader.tiffOffsetSize_(obj.isBigTiff_));
+                for tagIdx = 1:numel(tags)
+                    maxEnd = max(maxEnd, ...
+                        tags(tagIdx).dataOffset + tags(tagIdx).dataNbytes);
+                end
 
                 if planeIdx == 1
                     obj.w_ = obj.readTagValue_(tags, 256);    % IMAGEWIDTH
@@ -317,14 +324,13 @@ classdef ScanImageTiffReader < handle
 
             obj.nplanes_ = planeIdx;
 
-            maxEnd = 0;
             for k = 1:obj.nplanes_
                 ss = obj.ifdStrips_{k};
                 for j = 1:numel(ss)
                     maxEnd = max(maxEnd, ss(j).offset + ss(j).nbytes);
                 end
             end
-            obj.endOfImageBlock_ = maxEnd;
+            obj.endOfTiffData_ = maxEnd;
         end
 
         % ----- parseEntries_ ----------------------------------------
@@ -427,12 +433,42 @@ classdef ScanImageTiffReader < handle
                 return;
             end
 
-            if obj.endOfImageBlock_ ~= obj.fileSize_
+            if obj.hasLegacyMetadata_()
                 fmt = 2;
                 return;
             end
 
             fmt = 0;
+        end
+
+        % ----- hasLegacyMetadata_ ----------------------------------
+        function tf = hasLegacyMetadata_(obj)
+            tf = false;
+            if obj.fileSize_ < 4
+                return;
+            end
+
+            fseek(obj.fid_, obj.fileSize_ - 4, 'bof');
+            nbytes = fread(obj.fid_, 1, 'uint32', 0, obj.machfmt_);
+            if isempty(nbytes) || nbytes == 0 || nbytes > obj.fileSize_ - 4
+                return;
+            end
+
+            metadataStart = obj.fileSize_ - 4 - double(nbytes);
+            if metadataStart < obj.endOfTiffData_
+                return;
+            end
+
+            fseek(obj.fid_, metadataStart, 'bof');
+            candidate = fread(obj.fid_, double(nbytes), '*char')';
+            candidate = ScanImageTiffReader.nullTerminate_(candidate);
+            if isempty(candidate) || all(isspace(candidate))
+                return;
+            end
+
+            codes = double(candidate);
+            tf = all(codes == 9 | codes == 10 | codes == 13 | ...
+                (codes >= 32 & codes <= 126));
         end
 
         % ----- readMetadata2016_ ------------------------------------
@@ -472,13 +508,17 @@ classdef ScanImageTiffReader < handle
             fseek(obj.fid_, obj.fileSize_ - 4, 'bof');
             nbytes = fread(obj.fid_, 1, 'uint32', 0, obj.machfmt_);
 
-            if nbytes == 0 || nbytes > obj.fileSize_
+            if nbytes == 0 || nbytes > obj.fileSize_ - 4
                 meta = '';
                 return;
             end
 
             fseek(obj.fid_, obj.fileSize_ - 4 - nbytes, 'bof');
             meta = fread(obj.fid_, nbytes, '*char')';
+            meta = ScanImageTiffReader.nullTerminate_(meta);
+            if isempty(meta)
+                meta = '';
+            end
         end
     end
 
@@ -486,6 +526,14 @@ classdef ScanImageTiffReader < handle
     %  Static private helpers (no file access needed)
     % =================================================================
     methods (Static, Access = private)
+
+        function sz = tiffOffsetSize_(isBigTiff)
+            if isBigTiff
+                sz = 8;
+            else
+                sz = 4;
+            end
+        end
 
         function sz = tiffTypeSize_(typeId)
             persistent sizes
