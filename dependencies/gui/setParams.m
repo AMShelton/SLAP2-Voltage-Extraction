@@ -78,6 +78,14 @@ switch char(fnName)
         params.h5Deflate = 0;
         tooltips.h5Deflate = 'HDF5 compression level (0-9). Zero is fastest and preferred for parity testing.';
 
+        % Motion censoring (online xy offsets); defined once in source_extraction.
+        [motionParams, motionTooltips] = motionCensorDefaults();
+        motionNames = fieldnames(motionParams);
+        for k = 1:numel(motionNames)
+            params.(motionNames{k}) = motionParams.(motionNames{k});
+            tooltips.(motionNames{k}) = motionTooltips.(motionNames{k});
+        end
+
     otherwise
         error('setParams:UnknownFunction', 'Unknown function name: %s', char(fnName));
 end
@@ -130,6 +138,7 @@ params.outputFilename = char(string(params.outputFilename));
 if isempty(strtrim(params.outputFilename))
     error('setParams:InvalidOutputFilename', 'outputFilename cannot be empty.');
 end
+params = validateMotionCensorParams(params);
 end
 
 
