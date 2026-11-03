@@ -65,7 +65,9 @@ classdef MultiDataFiles < handle
                 'linesPerCycle', 8);
             obj.lineSuperPixelIDs = repmat({uint32(5)}, 1, 8);
             obj.lineFastZIdxs = ones(1, 8);
-            obj.lineDataStartIdxs = 0:7;
+            % Trace converts these one-based int16 sample positions to byte
+            % offsets. Zero would become an invalid memmap index in TracePixel.
+            obj.lineDataStartIdxs = 1:8;
             obj.hDataFiles = struct('filename', filename);
 
             if contains(filename, 'no_voltage', 'IgnoreCase', true)
