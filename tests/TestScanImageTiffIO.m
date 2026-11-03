@@ -123,6 +123,40 @@ classdef TestScanImageTiffIO < matlab.unittest.TestCase
                 descriptions)));
         end
 
+        function testReadsValidatedLegacyMetadataTrailer(testCase)
+            filename = testCase.writeTiff(uint16(reshape(1:12, 3, 4)));
+            expected = sprintf('state.acq.numberOfFrames = 1\n');
+            testCase.appendLegacyMetadata(filename, expected);
+
+            reader = ScanImageTiffReader(filename);
+            cleanup = onCleanup(@() delete(reader)); %#ok<NASGU>
+
+            testCase.verifyEqual(reader.metadata(), expected);
+        end
+
+        function testRejectsNullOnlyLegacyMetadataCandidate(testCase)
+            filename = testCase.writeTiff(uint16(reshape(1:12, 3, 4)));
+            testCase.appendLegacyMetadata(filename, char(0));
+
+            reader = ScanImageTiffReader(filename);
+            cleanup = onCleanup(@() delete(reader)); %#ok<NASGU>
+
+            testCase.verifyEqual(reader.metadata(), '');
+        end
+
+        function testRejectsImplausibleLegacyMetadataLength(testCase)
+            filename = testCase.writeTiff(uint16(reshape(1:12, 3, 4)));
+            fid = fopen(filename, 'a', 'ieee-le');
+            testCase.assertGreaterThanOrEqual(fid, 0);
+            fwrite(fid, intmax('uint32'), 'uint32');
+            fclose(fid);
+
+            reader = ScanImageTiffReader(filename);
+            cleanup = onCleanup(@() delete(reader)); %#ok<NASGU>
+
+            testCase.verifyEqual(reader.metadata(), '');
+        end
+
         function testDataWrapperFallsBackAfterReaderIsClosed(testCase)
             first = uint16([1 2 3; 4 5 6]);
             second = first + 10;
@@ -188,6 +222,14 @@ classdef TestScanImageTiffIO < matlab.unittest.TestCase
                 imwrite(stack(:, :, frameIndex), filename, 'tif', ...
                     'WriteMode', 'append', 'Compression', 'none');
             end
+        end
+
+        function appendLegacyMetadata(testCase, filename, metadata)
+            fid = fopen(filename, 'a', 'ieee-le');
+            testCase.assertGreaterThanOrEqual(fid, 0);
+            cleanup = onCleanup(@() fclose(fid)); %#ok<NASGU>
+            fwrite(fid, metadata, 'char');
+            fwrite(fid, numel(metadata), 'uint32');
         end
     end
 end
