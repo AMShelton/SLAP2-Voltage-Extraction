@@ -137,7 +137,11 @@ classdef TracePixel
                 if isempty(idxs)
                     break;
                 end
-                hFutures(end+1) = parfeval(@process,5,objs(idxs),windowWidth_lines,expectedWindowWidth_lines);
+                % Use a worker-side wrapper that drops loaded pixel data before
+                % returning. Otherwise every worker serializes its full
+                % [pixels x cycles] data matrices back to the client, which
+                % causes "Out of Memory during serialization" on long recordings.
+                hFutures(end+1) = parfeval(@processNoData,5,objs(idxs),windowWidth_lines,expectedWindowWidth_lines);
                 idxs = idxs + N;
             end
 
@@ -170,4 +174,14 @@ classdef TracePixel
             end
         end
     end
+end
+
+function [objs,trace,sumDataWeighted,sumExpected,sumExpectedWeighted] = processNoData(objs,windowWidth_lines,expectedWindowWidth_lines)
+%PROCESSNODATA Run TracePixel.process on a worker, returning objs without loaded data.
+[objs,trace,sumDataWeighted,sumExpected,sumExpectedWeighted] = ...
+    objs.process(windowWidth_lines,expectedWindowWidth_lines);
+for k = 1:numel(objs)
+    objs(k).data = single([]);
+    objs(k).isLoaded = false;
+end
 end
