@@ -69,28 +69,28 @@ classdef TracePixel
         end
 
         function [objs,trace,sumDataWeighted,sumExpected,sumExpectedWeighted] = process(objs,windowWidth_lines,expectedWindowWidth_lines)
-            objs = objs.load();
-
+            % Memory-lean: load, use and release one superpixel at a time
+            % (previously all superpixels' data were held in memory at once).
             tempKernel = exp(-abs((-4*windowWidth_lines) : (4*windowWidth_lines))./windowWidth_lines); %time weighting kernel
             tempKernel = single(tempKernel(:));
 
             expectedKernel = ones(expectedWindowWidth_lines,1,'single');
 
-            if isempty(objs)
-                numLines = 0;
-            else
-                numCycles = size(objs(1).data,2);
-                numLines = objs(1).linesPerCycle*numCycles;
-            end
-
-            sumDataWeighted     = zeros(numLines,1,'single');
-            sumExpected         = zeros(numLines,1,'single');
-            sumExpectedWeighted = zeros(numLines,1,'single');
+            sumDataWeighted     = zeros(0,1,'single');
+            sumExpected         = zeros(0,1,'single');
+            sumExpectedWeighted = zeros(0,1,'single');
 
             for idx = 1:numel(objs)
+                objs(idx) = objs(idx).load();
                 obj = objs(idx);
 
                 numCycles = size(obj.data,2);
+                if idx == 1
+                    numLines = obj.linesPerCycle*numCycles;
+                    sumDataWeighted     = zeros(numLines,1,'single');
+                    sumExpected         = zeros(numLines,1,'single');
+                    sumExpectedWeighted = zeros(numLines,1,'single');
+                end
                 lineData = zeros(obj.linesPerCycle,numCycles,'single');
                 sampled  = zeros(obj.linesPerCycle,numCycles,'single');
 
@@ -112,7 +112,12 @@ classdef TracePixel
 
                 sumDataWeighted     = sumDataWeighted      + weightedData;
                 sumExpected         = sumExpected          + expected;
-                sumExpectedWeighted = sumExpectedWeighted  + expectedWeighted;      
+                sumExpectedWeighted = sumExpectedWeighted  + expectedWeighted;
+
+                % Release this superpixel's data and temporaries before the next one.
+                clear lineData sampled weightedData tempWeights expected expectedN expectedWeighted obj
+                objs(idx).data = single([]);
+                objs(idx).isLoaded = false;
             end
 
             trace = sumDataWeighted ./ (sumExpectedWeighted+eps('like',sumExpectedWeighted)) .* sumExpected;
