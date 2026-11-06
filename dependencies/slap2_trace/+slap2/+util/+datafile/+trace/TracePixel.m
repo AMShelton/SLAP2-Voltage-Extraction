@@ -91,33 +91,41 @@ classdef TracePixel
                     sumExpected         = zeros(numLines,1,'single');
                     sumExpectedWeighted = zeros(numLines,1,'single');
                 end
-                lineData = zeros(obj.linesPerCycle,numCycles,'single');
-                sampled  = zeros(obj.linesPerCycle,numCycles,'single');
-
-                lineData(obj.lineIdxs,:) = obj.data;
-                sampled(obj.lineIdxs,:) = 1;
-
-                lineData = lineData(:);
-                sampled  = sampled(:);
-                
                 spatialWeight = obj.superPixelNumPixelsSelected/obj.superPixelNumPixels;
-                weightedData  = conv(lineData,tempKernel .* spatialWeight,'same');
-                tempWeights   = conv(sampled, tempKernel,'same');
+                lineIdxs = obj.lineIdxs;
+                linesPerCycle = obj.linesPerCycle;
 
-                expected  = conv(lineData,expectedKernel,'same');
-                expectedN = conv(sampled, expectedKernel,'same');
-                expected  = expected ./ (expectedN + eps('like',expectedN));
-
-                expectedWeighted = expected .* tempWeights;
-
-                sumDataWeighted     = sumDataWeighted      + weightedData;
-                sumExpected         = sumExpected          + expected;
-                sumExpectedWeighted = sumExpectedWeighted  + expectedWeighted;
-
-                % Release this superpixel's data and temporaries before the next one.
-                clear lineData sampled weightedData tempWeights expected expectedN expectedWeighted obj
+                % Build the dense line-data vector, then free the loaded data
+                % immediately (both the copy in objs and the local copy).
+                lineData = zeros(linesPerCycle,numCycles,'single');
+                lineData(lineIdxs,:) = obj.data;
+                lineData = lineData(:);
+                obj.data = single([]); %#ok<NASGU>
                 objs(idx).data = single([]);
                 objs(idx).isLoaded = false;
+                clear obj
+
+                % Data-dependent terms first, so the dense data vector can be
+                % freed before the sampling-mask terms are computed.
+                weightedData = conv(lineData,tempKernel .* spatialWeight,'same');
+                sumDataWeighted = sumDataWeighted + weightedData;
+                clear weightedData
+                expected = conv(lineData,expectedKernel,'same');
+                clear lineData
+
+                sampled = zeros(linesPerCycle,numCycles,'single');
+                sampled(lineIdxs,:) = 1;
+                sampled = sampled(:);
+
+                expectedN = conv(sampled,expectedKernel,'same');
+                expected  = expected ./ (expectedN + eps('like',expectedN));
+                clear expectedN
+
+                tempWeights = conv(sampled,tempKernel,'same');
+                clear sampled
+                sumExpected         = sumExpected         + expected;
+                sumExpectedWeighted = sumExpectedWeighted + expected .* tempWeights;
+                clear expected tempWeights
             end
 
             trace = sumDataWeighted ./ (sumExpectedWeighted+eps('like',sumExpectedWeighted)) .* sumExpected;
