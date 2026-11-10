@@ -4,7 +4,7 @@ This review records the test-by-test decisions made while translating the MATLAB
 
 ## Parameter tests
 
-Source: `TestVoltageParameters.m`  
+Source: `TestVoltageParameters.m`
 Target: `test_voltage_parameters.py`
 
 - **Examined behavior:** complete defaults, unknown-field preservation, MATLAB-style rounding, logical coercion, JSON text/files, MAT presets, ASAP presets, and invalid input/choice/range failures.
@@ -13,7 +13,7 @@ Target: `test_voltage_parameters.py`
 
 ## F0 tests
 
-Sources: `TestComputeVoltageF0.m`, `test_computeVoltageF0.m`  
+Sources: `TestComputeVoltageF0.m`, `test_computeVoltageF0.m`
 Target: `test_compute_voltage_f0.py`
 
 - **Examined behavior:** finite-only percentiles, row/column preservation, matrix flattening, precision, fallback values, empty early return, robust binning/interpolation/moving median, partial bins, defaults, and validation.
@@ -22,7 +22,7 @@ Target: `test_compute_voltage_f0.py`
 
 ## dF/F tests
 
-Sources: `TestComputeVoltageDFF.m`, `test_computeVoltageDFF.m`  
+Sources: `TestComputeVoltageDFF.m`, `test_computeVoltageDFF.m`
 Target: `test_compute_voltage_dff.py`
 
 - **Examined behavior:** ASAP polarity, all aliases, normalization, explicit precedence, fallback baseline, NaN propagation, N-D shape, precision, optional arguments, exact shape rejection, and error conditions.
@@ -31,7 +31,7 @@ Target: `test_compute_voltage_dff.py`
 
 ## HDF5 tests
 
-Sources: `TestHdf5StructIO.m`, `test_trial_table_roundtrip.m`  
+Sources: `TestHdf5StructIO.m`, `test_trial_table_roundtrip.m`
 Target: `test_hdf5_struct_io.py`
 
 - **Examined behavior:** recursive numeric/text/cell round trips, exact shapes/dtypes, logical-to-int8 conversion, layout marker, skipped empties, overwrite, legacy normalization, unsupported values, and missing files.
@@ -40,7 +40,7 @@ Target: `test_hdf5_struct_io.py`
 
 ## TIFF tests
 
-Source: `TestScanImageTiffIO.m`  
+Source: `TestScanImageTiffIO.m`
 Target: `test_scanimage_tiff_io.py`
 
 - **Examined behavior:** lifecycle, orientation, page stacks, shape descriptors, descriptions, wrappers, validated legacy trailers, fallback warnings, and invalid inputs.
@@ -49,7 +49,7 @@ Target: `test_scanimage_tiff_io.py`
 
 ## TracePixel tests
 
-Source: `TestTracePixel.m`  
+Source: `TestTracePixel.m`
 Target: `test_trace_pixel.py`
 
 - **Examined behavior:** cycle/file byte offsets, caching, exact int16 sentinel replacement, analytical weights, pre-normalization aggregation, and empty arrays.
@@ -58,7 +58,7 @@ Target: `test_trace_pixel.py`
 
 ## Trace tests
 
-Source: `TestTrace.m`  
+Source: `TestTrace.m`
 Target: `test_trace.py`
 
 - **Examined behavior:** constructor identity/defaults, pixel-to-superpixel mapping, logical map equivalence, validation, unknown pixels, idempotent selection, load/process delegation, and memory release.
@@ -67,7 +67,7 @@ Target: `test_trace.py`
 
 ## Voltage orchestration tests
 
-Sources: `TestVoltage.m`, `test_voltage_roi_discovery_contract.m`  
+Sources: `TestVoltage.m`, `test_voltage_roi_discovery_contract.m`
 Target: `test_voltage.py`
 
 - **Examined behavior:** single-ROI extraction, public summary, HDF5 schema and attributes, directory resolution, overwrite safety, cleanup, no-ROI handling, missing input, ROI classification, legacy masks, and lazy parallel startup.
@@ -76,7 +76,7 @@ Target: `test_voltage.py`
 
 ## Trial-table tests
 
-Source: `TestBuildTrialTableSLAP2.m`  
+Source: `TestBuildTrialTableSLAP2.m`
 Target: `test_trial_table.py`
 
 - **Examined behavior:** triggered repair, continuous inclusive chunking and boundaries, shorter-path truncation, source ambiguity, AIND layout, reference selection/metadata, HDF5 round trip, missing inputs, and alignment threshold.
@@ -85,7 +85,7 @@ Target: `test_trial_table.py`
 
 ## Motion-censor tests
 
-Source: `test_motion_censor.m`  
+Source: `test_motion_censor.m`
 Target: `test_motion_censor.py`
 
 - **Examined behavior:** defaults, parameter wiring, stationary/drift behavior, transient padding, gap merging, hard cap, nonfinite offsets, initial discard, line expansion, F0 isolation, and all-censored safety.
@@ -94,7 +94,7 @@ Target: `test_motion_censor.py`
 
 ## Repository contracts
 
-Sources: `TestRepositorySetup.m`, `test_repository_layout.m`  
+Sources: `TestRepositorySetup.m`, `test_repository_layout.m`
 Target: `test_repository_contract.py`
 
 - **Examined behavior:** dependencies resolve, setup is idempotent, trace imports have no eager pool side effect, format version is public, and failed output is removed.
