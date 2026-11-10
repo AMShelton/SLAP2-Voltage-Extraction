@@ -69,50 +69,63 @@ classdef TracePixel
         end
 
         function [objs,trace,sumDataWeighted,sumExpected,sumExpectedWeighted] = process(objs,windowWidth_lines,expectedWindowWidth_lines)
-            objs = objs.load();
-
+            % Memory-lean: load, use and release one superpixel at a time
+            % (previously all superpixels' data were held in memory at once).
             tempKernel = exp(-abs((-4*windowWidth_lines) : (4*windowWidth_lines))./windowWidth_lines); %time weighting kernel
             tempKernel = single(tempKernel(:));
 
             expectedKernel = ones(expectedWindowWidth_lines,1,'single');
 
-            if isempty(objs)
-                numLines = 0;
-            else
-                numCycles = size(objs(1).data,2);
-                numLines = objs(1).linesPerCycle*numCycles;
-            end
-
-            sumDataWeighted     = zeros(numLines,1,'single');
-            sumExpected         = zeros(numLines,1,'single');
-            sumExpectedWeighted = zeros(numLines,1,'single');
+            sumDataWeighted     = zeros(0,1,'single');
+            sumExpected         = zeros(0,1,'single');
+            sumExpectedWeighted = zeros(0,1,'single');
 
             for idx = 1:numel(objs)
+                objs(idx) = objs(idx).load();
                 obj = objs(idx);
 
                 numCycles = size(obj.data,2);
-                lineData = zeros(obj.linesPerCycle,numCycles,'single');
-                sampled  = zeros(obj.linesPerCycle,numCycles,'single');
-
-                lineData(obj.lineIdxs,:) = obj.data;
-                sampled(obj.lineIdxs,:) = 1;
-
-                lineData = lineData(:);
-                sampled  = sampled(:);
-                
+                if idx == 1
+                    numLines = obj.linesPerCycle*numCycles;
+                    sumDataWeighted     = zeros(numLines,1,'single');
+                    sumExpected         = zeros(numLines,1,'single');
+                    sumExpectedWeighted = zeros(numLines,1,'single');
+                end
                 spatialWeight = obj.superPixelNumPixelsSelected/obj.superPixelNumPixels;
-                weightedData  = conv(lineData,tempKernel .* spatialWeight,'same');
-                tempWeights   = conv(sampled, tempKernel,'same');
+                lineIdxs = obj.lineIdxs;
+                linesPerCycle = obj.linesPerCycle;
 
-                expected  = conv(lineData,expectedKernel,'same');
-                expectedN = conv(sampled, expectedKernel,'same');
+                % Build the dense line-data vector, then free the loaded data
+                % immediately (both the copy in objs and the local copy).
+                lineData = zeros(linesPerCycle,numCycles,'single');
+                lineData(lineIdxs,:) = obj.data;
+                lineData = lineData(:);
+                obj.data = single([]); %#ok<NASGU>
+                objs(idx).data = single([]);
+                objs(idx).isLoaded = false;
+                clear obj
+
+                % Data-dependent terms first, so the dense data vector can be
+                % freed before the sampling-mask terms are computed.
+                weightedData = conv(lineData,tempKernel .* spatialWeight,'same');
+                sumDataWeighted = sumDataWeighted + weightedData;
+                clear weightedData
+                expected = conv(lineData,expectedKernel,'same');
+                clear lineData
+
+                sampled = zeros(linesPerCycle,numCycles,'single');
+                sampled(lineIdxs,:) = 1;
+                sampled = sampled(:);
+
+                expectedN = conv(sampled,expectedKernel,'same');
                 expected  = expected ./ (expectedN + eps('like',expectedN));
+                clear expectedN
 
-                expectedWeighted = expected .* tempWeights;
-
-                sumDataWeighted     = sumDataWeighted      + weightedData;
-                sumExpected         = sumExpected          + expected;
-                sumExpectedWeighted = sumExpectedWeighted  + expectedWeighted;      
+                tempWeights = conv(sampled,tempKernel,'same');
+                clear sampled
+                sumExpected         = sumExpected         + expected;
+                sumExpectedWeighted = sumExpectedWeighted + expected .* tempWeights;
+                clear expected tempWeights
             end
 
             trace = sumDataWeighted ./ (sumExpectedWeighted+eps('like',sumExpectedWeighted)) .* sumExpected;
@@ -137,7 +150,11 @@ classdef TracePixel
                 if isempty(idxs)
                     break;
                 end
-                hFutures(end+1) = parfeval(@process,5,objs(idxs),windowWidth_lines,expectedWindowWidth_lines);
+                % Use a worker-side wrapper that drops loaded pixel data before
+                % returning. Otherwise every worker serializes its full
+                % [pixels x cycles] data matrices back to the client, which
+                % causes "Out of Memory during serialization" on long recordings.
+                hFutures(end+1) = parfeval(@processNoData,5,objs(idxs),windowWidth_lines,expectedWindowWidth_lines);
                 idxs = idxs + N;
             end
 
@@ -170,4 +187,14 @@ classdef TracePixel
             end
         end
     end
+end
+
+function [objs,trace,sumDataWeighted,sumExpected,sumExpectedWeighted] = processNoData(objs,windowWidth_lines,expectedWindowWidth_lines)
+%PROCESSNODATA Run TracePixel.process on a worker, returning objs without loaded data.
+[objs,trace,sumDataWeighted,sumExpected,sumExpectedWeighted] = ...
+    objs.process(windowWidth_lines,expectedWindowWidth_lines);
+for k = 1:numel(objs)
+    objs(k).data = single([]);
+    objs(k).isLoaded = false;
+end
 end

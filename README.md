@@ -6,7 +6,7 @@ The current MATLAB implementation is the reference implementation. It reads a GI
 
 A Python implementation is planned and will be validated against the MATLAB output dataset-by-dataset.
 
-> **Scope:** this repository performs direct voltage trace extraction and normalization. Motion correction is intentionally out of scope.
+> **Scope:** this repository performs direct voltage trace extraction and normalization. Image motion correction is out of scope. Optional **motion censoring** (off by default) marks samples recorded while the online motion correction was off target and sets their `dff`/`f0` to NaN; see [Motion censoring](#motion-censoring).
 
 ---
 
@@ -353,7 +353,8 @@ Legend: 🗄️ file · 📁 group · 🔤 string · 🔢 integer · 📈 numeri
     │  ├ 🔢 trial_num_frames
     │  ├ 🔢 trial_epoch
     │  ├ 🔢 frame_line_idxs
-    │  └ 🔢 sample_epoch
+    │  ├ 🔢 sample_epoch
+    │  └ 🔢 motion_censor          (only when motionCensorEnable)
     └ 📁 sources
        ├ 📁 spatial
        │  ├ 🖼️ profiles
@@ -379,6 +380,7 @@ Legend: 🗄️ file · 📁 group · 🔤 string · 🔢 integer · 📈 numeri
 | `Path#/frame_info/trial_epoch` | `nTrials x 1` | int32 | Acquisition-epoch index assigned to each analysis trial. |
 | `Path#/frame_info/frame_line_idxs` | `totalSamples x 1` | int32 | Source SLAP2 line index corresponding to each concatenated output sample. |
 | `Path#/frame_info/sample_epoch` | `totalSamples x 1` | int32 | Acquisition-epoch index for every output sample. |
+| `Path#/frame_info/motion_censor` | `totalSamples x 1` | uint8 | 1 where the sample is motion-censored (`dff`/`f0` are NaN there; `raw_f` is intact). Written only when `motionCensorEnable` is true. |
 | `Path#/sources/spatial/profiles` | `nROIs x 1 x rows x cols` | single | Binary spatial footprint for each extracted integration ROI. |
 | `Path#/sources/spatial/coords` | `nROIs x 3` | double | Zero-indexed `[z, y, x]` ROI centroid. |
 | `Path#/sources/spatial/source_roi_index` | `nROIs x 1` | int32 | 1-based index of each retained ROI in the acquisition ROI list. |
@@ -410,15 +412,47 @@ sources/temporal/events
 sources/temporal/SNR
 ```
 
-are **not** generated because direct voltage extraction does not perform SILo source detection, denoising, event inference, or motion correction.
+are **not** generated because direct voltage extraction does not perform SILo source detection, denoising, event inference, or image motion correction.
 
 GIAnT uses `F0`; Voltage uses lowercase `f0` to match the existing voltage-analysis convention (`raw_f`, `f0`, `dff`) used downstream in `vip-slap2-analysis`.
 
 ---
 
+## Motion censoring
+
+Integration-mode voltage cannot be realigned after the fact, so samples acquired while the tissue moved faster or farther than the online motion correction could follow are censored rather than corrected. Censoring is **off** by default (`motionCensorEnable = false`) and uses only the online motion offsets stored in the SLAP2 line headers (`xOffset_pix`, `yOffset_pix`); no images, registration, or motion-corrected TIFFs are involved. (GIAnT's glutamate censoring uses `recNegErr`, which needs registered images and therefore does not exist for integration-mode voltage.)
+
+The rule mirrors GIAnT's `loadAndProcessTrialAsync.m`, applied to the xy offset magnitude in microns:
+
+1. `m = motionPixelSize_um * hypot(x, y)`.
+2. `dev = m - running median of m` (`motionMedianWindow_s`), which removes slow drift that online correction already tracks.
+3. `nd = dev / max(abs(prctile(dev,5)), motionScaleFloor_um)`. Online offsets are integer pixels, so the lower-tail spread can be zero; the floor (one pixel, 0.25 um) keeps the scale finite.
+4. Flag `nd > motionThresh`. Extend flagged spans by up to `motionPad_s`, only into samples above `motionThresh/2`; merge spans closer than `motionMergeGap_s`.
+5. Optionally also flag `m > motionAbsMax_um` (0 disables) and the first `motionDiscardInitial_s` seconds.
+
+Offsets are read at `motionSamplesPerCycle` lines per SLAP2 cycle (default 1), then held (zero-order) across every line, so the mask has the same line-rate axis as `raw_f`.
+
+Effect on the output:
+
+- `raw_f` is **unchanged**.
+- `f0` and `dff` are `NaN` where censored. Censored samples are removed before F0 is estimated, so artifacts cannot bias the baseline.
+- `Path#/frame_info/motion_censor` (`uint8`, same axis as `raw_f`; 1 = censored) is written whenever censoring is enabled.
+- `summary.path(k).motion(source)` reports the fraction censored, robust scale and threshold per source file; a warning is raised above `motionMaxFracCensored`.
+
+Tune the parameters before a full run with `previewMotionCensor`, which reads only the offsets (no trace extraction):
+
+```matlab
+p = previewMotionCensor('path/to/acquisition_..._CYCLE-000000.dat');   % plot, adjust in the GUI, accept
+processVoltage(dr, savedr, false, p);                                  % p contains the motion* fields
+```
+
+All `motion*` parameters are defined once in `source_extraction/motionCensorDefaults.m` and merged into both `setParams.m` and `processVoltage.m`.
+
+---
+
 ## Parameters
 
-The default parameters are defined in `dependencies/gui/setParams.m`.
+The default parameters are defined in `dependencies/gui/setParams.m` (motion-censoring parameters in `source_extraction/motionCensorDefaults.m`).
 
 | Parameter | Default | Description |
 | --- | ---: | --- |
@@ -441,6 +475,17 @@ The default parameters are defined in `dependencies/gui/setParams.m`.
 | `overwrite` | `false` | Replace an existing output file. |
 | `h5ChunkSamples` | `100000` | HDF5 chunk length along the temporal dimension. |
 | `h5Deflate` | `0` | HDF5 compression level. `0` is fastest and preferred for parity testing. |
+| `motionCensorEnable` | `false` | Censor motion-contaminated samples (dff/f0 -> NaN, mask saved). |
+| `motionPixelSize_um` | `0.25` | um per SLAP2 pixel for the online xy offsets. |
+| `motionMedianWindow_s` | `4` | Running-median window removing slow drift. |
+| `motionThresh` | `2.5` | Censor above this many robust-scale units (GIAnT semantics). |
+| `motionScaleFloor_um` | `0.25` | Minimum robust scale (one pixel). |
+| `motionAbsMax_um` | `0` | Optional hard cap on raw xy offset magnitude; 0 disables. |
+| `motionPad_s` | `0.025` | Extend spans into shoulder samples above half threshold. |
+| `motionMergeGap_s` | `0.05` | Merge censored spans closer than this. |
+| `motionDiscardInitial_s` | `0` | Always censor this many seconds at the start of each source. |
+| `motionSamplesPerCycle` | `1` | Offsets read per SLAP2 cycle. |
+| `motionMaxFracCensored` | `0.25` | Warn above this censored fraction per source. |
 
 The preset helpers set indicator polarity while retaining these defaults:
 
@@ -511,10 +556,17 @@ is expected.
 SLAP2-Voltage-Extraction/
 ├── Voltage.m
 ├── buildTrialTableSLAP2.m
+├── previewMotionCensor.m
 ├── setup.m
 ├── source_extraction/
 │   ├── computeVoltageF0.m
-│   └── computeVoltageDFF.m
+│   ├── computeVoltageDFF.m
+│   ├── computeMotionCensor.m
+│   ├── computeSourceMotionMask.m
+│   ├── readSourceOnlineMotion.m
+│   ├── expandMotionMaskToLines.m
+│   ├── motionCensorDefaults.m
+│   └── validateMotionCensorParams.m
 ├── dependencies/
 │   ├── gui/
 │   │   ├── optionsGUI.m
@@ -523,6 +575,8 @@ SLAP2-Voltage-Extraction/
 │   │   ├── loadStructFromH5.m
 │   │   ├── saveStructToH5.m
 │   │   └── ScanImageTiff*.m
+│   ├── slap2_motion/
+│   │   └── getOnlineMotion.m      (vendored from GIAnT)
 │   └── slap2_trace/
 │       └── +slap2/+util/+datafile/+trace/
 │           ├── Trace.m
@@ -553,6 +607,7 @@ Current tests cover:
 - robust/static Voltage F0 behavior;
 - ASAP7/ASAP8 dF/F polarity;
 - trial-table HDF5 round-trip behavior;
+- motion-censoring rule, mask expansion, and NaN-safe F0/dF/F (`test_motion_censor.m`);
 - the distinction between integration-only ROI classification and historical `mask, mask` Trace extraction semantics.
 
 ---

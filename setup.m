@@ -6,6 +6,7 @@ addpath(fullfile(root,'source_extraction'),'-begin');
 addpath(fullfile(root,'dependencies','io'),'-begin');
 addpath(fullfile(root,'dependencies','gui'),'-begin');
 addpath(fullfile(root,'dependencies','slap2_trace'),'-begin');
+addpath(fullfile(root,'dependencies','slap2_motion'),'-begin');
 addpath(fullfile(root,'presets'),'-begin');
 
 % The binary reader remains external, but the voltage Trace/TracePixel kernel

@@ -56,4 +56,5 @@ table(results)
 
 Dummy data replaces only unavailable external parsing or metadata assembly. Low-level numerical and binary algorithms use production code. In particular, `TestVoltage` is not an end-to-end validation of the external SLAP2 reader; that boundary must be covered by the future real-session test.
 
-The next milestone is a golden-session integration test that runs `Voltage.m` against a representative Neuron2/Neuron5 session and validates the complete HDF5 output against approved reference values.
+- `test_voltage_roi_discovery_contract.m` protects the parse-plan ROI selector, legacy raw-F mask semantics, all-zero-ROI failure, and lazy parallel-pool startup.
+- `test_motion_censor.m` covers the online-offset censoring rule, mask-to-line expansion, parameter wiring in `setParams`, engine integration, and NaN-safe F0/dF/F with censored samples.
