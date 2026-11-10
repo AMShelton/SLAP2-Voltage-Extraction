@@ -10,7 +10,7 @@ classdef TestVoltageParameters < matlab.unittest.TestCase
             import matlab.unittest.fixtures.PathFixture
 
             testsDir = fileparts(mfilename('fullpath'));
-            repoRoot = fileparts(testsDir);
+            repoRoot = fileparts(fileparts(testsDir));
             testCase.applyFixture(PathFixture(repoRoot));
             testCase.applyFixture(PathFixture(fullfile(repoRoot, 'dependencies', 'gui')));
             testCase.applyFixture(PathFixture(fullfile(repoRoot, 'source_extraction')));

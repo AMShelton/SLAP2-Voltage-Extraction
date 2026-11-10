@@ -118,7 +118,7 @@ verifyTrue(testCase,all(isfinite(f0)));
 end
 
 function testEngineWiresMotionCensoring(testCase)
-root = fileparts(fileparts(mfilename('fullpath')));
+root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
 for name = {'Voltage.m','processVoltage.m'}
     txt = fileread(fullfile(root,name{1}));
     verifyTrue(testCase,contains(txt,'computeSourceMotionMask('),name{1});

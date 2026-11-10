@@ -3,7 +3,7 @@ tests = functiontests(localfunctions);
 end
 
 function testRoundTrip(testCase)
-root = fileparts(fileparts(mfilename('fullpath')));
+root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
 addpath(fullfile(root,'dependencies','io'));
 fn = [tempname '.h5'];
 cleanup = onCleanup(@()deleteIfExists(fn)); %#ok<NASGU>

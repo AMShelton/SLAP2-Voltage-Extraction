@@ -1,7 +1,7 @@
 classdef TestBuildTrialTableSLAP2 < matlab.unittest.TestCase
     %TESTBUILDTRIALTABLESLAP2 Unit tests for buildTrialTableSLAP2.
     %
-    % These tests use small text files and test doubles under tests/fakes.
+    % These tests use small text files and test doubles under tests/matlab/fakes.
     % No real SLAP2 DAT data, reference TIFF data, or external SLAP2 reader
     % installation is required.
 
@@ -18,7 +18,7 @@ classdef TestBuildTrialTableSLAP2 < matlab.unittest.TestCase
             import matlab.unittest.fixtures.PathFixture
 
             testsDir = fileparts(mfilename('fullpath'));
-            repoRoot = fileparts(testsDir);
+            repoRoot = fileparts(fileparts(testsDir));
             testCase.applyFixture(PathFixture(repoRoot));
             testCase.applyFixture(PathFixture( ...
                 fullfile(repoRoot, 'dependencies'), 'IncludingSubfolders', true));

@@ -585,6 +585,7 @@ SLAP2-Voltage-Extraction/
 │   ├── ASAP7_params.m
 │   └── ASAP8_params.m
 ├── tests/
+│   └── matlab/                  (MATLAB characterization suite)
 └── docs/
     └── ROADMAP.md
 ```
@@ -597,7 +598,7 @@ Run the MATLAB test suite from the repository root:
 
 ```matlab
 setup
-results = runtests('tests');
+results = runtests('tests/matlab');
 table(results)
 ```
 

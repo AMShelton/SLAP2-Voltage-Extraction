@@ -11,8 +11,8 @@ classdef TestVoltage < matlab.unittest.TestCase
         function addTestPaths(testCase)
             import matlab.unittest.fixtures.PathFixture
 
-            testCase.Root = fileparts(fileparts(mfilename('fullpath')));
-            testsDir = fullfile(testCase.Root, 'tests');
+            testCase.Root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
+            testsDir = fullfile(testCase.Root, 'tests', 'matlab');
             testCase.applyFixture(PathFixture(testCase.Root));
             testCase.applyFixture(PathFixture( ...
                 fullfile(testCase.Root, 'dependencies', 'io')));

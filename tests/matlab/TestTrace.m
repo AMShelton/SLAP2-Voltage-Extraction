@@ -10,7 +10,7 @@ classdef TestTrace < matlab.unittest.TestCase
             import matlab.unittest.fixtures.PathFixture
 
             testsDir = fileparts(mfilename('fullpath'));
-            repoRoot = fileparts(testsDir);
+            repoRoot = fileparts(fileparts(testsDir));
             testCase.applyFixture(PathFixture( ...
                 fullfile(repoRoot, 'dependencies', 'slap2_trace')));
             % This path supplies only the minimal slap2.util.MultiDataFiles

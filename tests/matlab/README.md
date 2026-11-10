@@ -14,7 +14,7 @@ Run the complete suite in a fresh MATLAB process:
 ```matlab
 clear classes
 setup
-results = runtests('tests');
+results = runtests('tests/matlab');
 table(results)
 assertSuccess(results)
 ```
@@ -26,7 +26,7 @@ the `python_translation` branch and run the same suite with:
 bash run_matlab_tests.sh
 ```
 
-`clear classes` matters when rerunning tests interactively because MATLAB can cache package classes after paths change. The suite uses one shared `slap2.util.MultiDataFiles` test double under `tests/fakes`; production `Trace` and `TracePixel` remain under test.
+`clear classes` matters when rerunning tests interactively because MATLAB can cache package classes after paths change. The suite uses one shared `slap2.util.MultiDataFiles` test double under `tests/matlab/fakes`; production `Trace` and `TracePixel` remain under test.
 
 ## Characterization sections
 
@@ -48,7 +48,7 @@ Run one class while diagnosing a failure:
 ```matlab
 clear classes
 setup
-results = runtests('tests/TestTracePixel.m');
+results = runtests('tests/matlab/TestTracePixel.m');
 table(results)
 ```
 

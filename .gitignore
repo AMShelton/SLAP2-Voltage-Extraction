@@ -6,7 +6,7 @@
 *.tif
 *.tiff
 *.h5
-!tests/fixtures/*.h5
+!tests/matlab/fixtures/*.h5
 Voltage/
 .DS_Store
 Thumbs.db
