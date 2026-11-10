@@ -6,7 +6,7 @@ classdef TestComputeVoltageF0 < matlab.unittest.TestCase
             import matlab.unittest.fixtures.PathFixture
 
             testsDir = fileparts(mfilename('fullpath'));
-            repoRoot = fileparts(testsDir);
+            repoRoot = fileparts(fileparts(testsDir));
             testCase.applyFixture(PathFixture(fullfile(repoRoot, 'source_extraction')));
             testCase.applyFixture(PathFixture(fullfile(repoRoot, 'dependencies', 'gui')));
         end

@@ -4,7 +4,7 @@ end
 
 function setup(~)
 testsDir = fileparts(mfilename('fullpath'));
-repoRoot = fileparts(testsDir);
+repoRoot = fileparts(fileparts(testsDir));
 addpath(fullfile(repoRoot,'source_extraction'));
 addpath(fullfile(repoRoot,'dependencies','gui'));
 end

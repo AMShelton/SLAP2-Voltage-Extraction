@@ -3,7 +3,7 @@ tests = functiontests(localfunctions);
 end
 
 function testParsePlanClassificationNotImagingModeString(testCase)
-root = fileparts(fileparts(mfilename('fullpath')));
+root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
 src = fileread(fullfile(root,'Voltage.m'));
 
 verifyNotEmpty(testCase, strfind(src, ...
@@ -15,7 +15,7 @@ verifyNotEmpty(testCase, strfind(src, ...
 end
 
 function testRawExtractionKeepsLegacyMaskSemantics(testCase)
-root = fileparts(fileparts(mfilename('fullpath')));
+root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
 src = fileread(fullfile(root,'Voltage.m'));
 
 % ROI classification uses integration-only mapping, but raw F must continue to
@@ -25,7 +25,7 @@ verifyNotEmpty(testCase, strfind(src, ...
 end
 
 function testAllZeroRoisFailAndDeleteOutput(testCase)
-root = fileparts(fileparts(mfilename('fullpath')));
+root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
 src = fileread(fullfile(root,'Voltage.m'));
 
 verifyNotEmpty(testCase, strfind(src,'totalVoltageRoisFound == 0')); %#ok<STRIFCND>
@@ -34,7 +34,7 @@ verifyNotEmpty(testCase, strfind(src,'delete(outputPath)')); %#ok<STRIFCND>
 end
 
 function testParallelPoolIsLazy(testCase)
-root = fileparts(fileparts(mfilename('fullpath')));
+root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
 src = fileread(fullfile(root,'Voltage.m'));
 
 roiCheck = strfind(src,'if nRois == 0');

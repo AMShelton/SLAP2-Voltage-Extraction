@@ -10,7 +10,7 @@ classdef TestTracePixel < matlab.unittest.TestCase
             import matlab.unittest.fixtures.PathFixture
 
             testsDir = fileparts(mfilename('fullpath'));
-            repoRoot = fileparts(testsDir);
+            repoRoot = fileparts(fileparts(testsDir));
             testCase.applyFixture(PathFixture( ...
                 fullfile(repoRoot, 'dependencies', 'slap2_trace')));
         end
@@ -81,7 +81,9 @@ classdef TestTracePixel < matlab.unittest.TestCase
 
             sampled = [2 4 6 8];
             unsampled = setdiff(1:8, sampled);
-            testCase.verifyTrue(pixel.isLoaded);
+            % Processing intentionally releases loaded samples to bound memory.
+            testCase.verifyFalse(pixel.isLoaded);
+            testCase.verifyEmpty(pixel.data);
             testCase.verifySize(trace, [8 1]);
             testCase.verifyClass(trace, 'single');
             testCase.verifyEqual(trace(sampled), ...

@@ -4,7 +4,8 @@ end
 
 function setup(~)
 testsDir = fileparts(mfilename('fullpath'));
-addpath(fullfile(fileparts(testsDir),'source_extraction'));
+repoRoot = fileparts(fileparts(testsDir));
+addpath(fullfile(repoRoot,'source_extraction'));
 end
 
 function testASAP8(testCase)

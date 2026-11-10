@@ -8,8 +8,8 @@ classdef TestRepositorySetup < matlab.unittest.TestCase
 
     methods (TestClassSetup)
         function locateRepository(testCase)
-            testCase.Root = fileparts(fileparts(mfilename('fullpath')));
-            testCase.FakeRoot = fullfile(testCase.Root, 'tests', 'fakes');
+            testCase.Root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
+            testCase.FakeRoot = fullfile(testCase.Root, 'tests', 'matlab', 'fakes');
         end
     end
 
