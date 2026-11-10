@@ -137,11 +137,15 @@ classdef TestTrace < matlab.unittest.TestCase
             traceObject.setPixelIdxs(1, []);
 
             traceObject.loadData();
-            [trace, weight] = traceObject.process(1, 1);
-
             testCase.verifyTrue(traceObject.TracePixels.isLoaded);
             testCase.verifyEqual(traceObject.TracePixels.data, ...
                 single(10 * ones(2, 2)));
+
+            [trace, weight] = traceObject.process(1, 1);
+
+            % Processing intentionally releases loaded samples to bound memory.
+            testCase.verifyFalse(traceObject.TracePixels.isLoaded);
+            testCase.verifyEmpty(traceObject.TracePixels.data);
             testCase.verifyEqual(trace, single(10 * ones(4, 1)), ...
                 'AbsTol', single(1e-5));
             testCase.verifyGreaterThan(weight, zeros(4, 1, 'single'));
