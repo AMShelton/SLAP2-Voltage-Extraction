@@ -18,6 +18,9 @@ classdef MultiDataFiles < handle
         lineDataStartIdxs = []
         metaData = struct()
         fastZs = []
+        lineHeaderIdxs = []
+        numCycles = 0
+        onlineMotion = struct('x',[],'y',[],'z',[])
     end
 
     methods
@@ -35,6 +38,19 @@ classdef MultiDataFiles < handle
             for idx = 1:numel(names)
                 obj.(names{idx}) = values.(names{idx});
             end
+        end
+
+        function header = getLineHeader(obj,residualLine,cycleIndex)
+            residualLine = residualLine(:);
+            cycleIndex = cycleIndex(:);
+            if isscalar(cycleIndex) && numel(residualLine)>1
+                cycleIndex = repmat(cycleIndex,size(residualLine));
+            end
+            lineIds = residualLine + (cycleIndex-1)*numel(obj.lineHeaderIdxs);
+            header = struct( ...
+                'xOffset_pix',reshape(obj.onlineMotion.x(lineIds),size(lineIds)), ...
+                'yOffset_pix',reshape(obj.onlineMotion.y(lineIds),size(lineIds)), ...
+                'zOffset_um',reshape(obj.onlineMotion.z(lineIds),size(lineIds)));
         end
     end
 
@@ -69,6 +85,12 @@ classdef MultiDataFiles < handle
             % offsets. Zero would become an invalid memmap index in TracePixel.
             obj.lineDataStartIdxs = 1:8;
             obj.hDataFiles = struct('filename', filename);
+            obj.lineHeaderIdxs = 1:8;
+            obj.numCycles = 2;
+            obj.onlineMotion = struct( ...
+                'x',zeros(16,1), ...
+                'y',zeros(16,1), ...
+                'z',(0:15)');
 
             if contains(filename, 'no_voltage', 'IgnoreCase', true)
                 obj.zPixelReplacementMaps = {uint32([0 1])};

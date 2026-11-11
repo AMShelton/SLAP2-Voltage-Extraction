@@ -150,6 +150,32 @@ classdef TestTrace < matlab.unittest.TestCase
                 'AbsTol', single(1e-5));
             testCase.verifyGreaterThan(weight, zeros(4, 1, 'single'));
         end
+
+        function testProcessAsyncMatchesSynchronousTraceAndWeight(testCase)
+            testCase.assumeTrue(license('test','Distrib_Computing_Toolbox'), ...
+                'Parallel Computing Toolbox is required for processAsync.');
+            originalPool = gcp('nocreate');
+            cleanup = onCleanup(@() testCase.deletePoolCreatedByTest(originalPool)); %#ok<NASGU>
+            filename = testCase.writeInt16('trace_async.dat', ...
+                int16(10 * ones(1,8)));
+            syncTraceObject = slap2.util.datafile.trace.Trace( ...
+                testCase.makeProcessingSource(filename));
+            asyncTraceObject = slap2.util.datafile.trace.Trace( ...
+                testCase.makeProcessingSource(filename));
+            syncTraceObject.setPixelIdxs(1,[]);
+            asyncTraceObject.setPixelIdxs(1,[]);
+
+            [expectedTrace,expectedWeight] = syncTraceObject.process(1,1);
+            future = asyncTraceObject.processAsync(1,1);
+            testCase.verifyClass(future,'parallel.FevalFuture');
+            [actualTrace,actualWeight] = fetchOutputs(future);
+
+            testCase.verifyEqual(actualTrace,expectedTrace,'AbsTol',single(1e-5));
+            testCase.verifyEqual(actualWeight,expectedWeight,'AbsTol',single(1e-5));
+            testCase.verifyFalse(any([asyncTraceObject.TracePixels.isLoaded]));
+            testCase.verifyTrue(all(arrayfun( ...
+                @(p) isempty(p.data),asyncTraceObject.TracePixels)));
+        end
     end
 
     methods (Access = private)
@@ -195,6 +221,15 @@ classdef TestTrace < matlab.unittest.TestCase
             cleanup = onCleanup(@() fclose(fid)); %#ok<NASGU>
             count = fwrite(fid, values, 'int16');
             testCase.assertEqual(count, numel(values));
+        end
+
+        function deletePoolCreatedByTest(~,originalPool)
+            if isempty(originalPool)
+                pool = gcp('nocreate');
+                if ~isempty(pool)
+                    delete(pool);
+                end
+            end
         end
     end
 end

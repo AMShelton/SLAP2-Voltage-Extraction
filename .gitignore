@@ -11,3 +11,10 @@ Voltage/
 .DS_Store
 Thumbs.db
 matlab-test-results.log
+.venv/
+.uv-python/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.pytest-*/

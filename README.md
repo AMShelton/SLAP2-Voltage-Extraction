@@ -187,17 +187,20 @@ The required SLAP2 fields are:
     └ 🔤 line_range_convention
 ```
 
-New trial tables written by this repository use:
+`trial_table.h5` is both an output of `buildTrialTableSLAP2` and a public input to `Voltage` or other downstream analysis tools. New trial tables written by this repository deliberately preserve the GIAnT/MATLAB line-numbering contract:
 
 ```text
 /slap2_info/line_range_convention = "inclusive"
 ```
 
-so each analysis-trial range is:
+`first_line` and `last_line` are **one-based, inclusive** line numbers, so each analysis-trial range is:
 
 ```text
 first_line <= line <= last_line
+number_of_lines = last_line - first_line + 1
 ```
+
+External Python consumers should convert a stored range to a zero-based, half-open slice as `slice(first_line - 1, last_line)`. Python code inside this repository may likewise use zero-based, half-open ranges internally, but must convert back when returning or writing a trial table.
 
 Older GIAnT continuous-CYCLE tables that lack this field are supported automatically. Their historical upper-bound convention is normalized internally so adjacent analysis trials do not duplicate boundary samples.
 

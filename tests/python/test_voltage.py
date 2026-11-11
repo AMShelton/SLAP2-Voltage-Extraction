@@ -8,14 +8,8 @@ import h5py
 import numpy as np
 import pytest
 
-voltage_module = pytest.importorskip(
-    "slap2_voltage_extraction.voltage",
-    reason="Python Voltage translation has not been implemented yet",
-)
-hdf5_module = pytest.importorskip(
-    "slap2_voltage_extraction.io.hdf5",
-    reason="Python HDF5 struct I/O translation has not been implemented yet",
-)
+voltage_module = pytest.importorskip("voltage")
+hdf5_module = pytest.importorskip("dependencies.io")
 voltage = voltage_module.voltage
 FORMAT_VERSION = voltage_module.FORMAT_VERSION
 save_struct_to_h5 = hdf5_module.save_struct_to_h5
@@ -63,7 +57,7 @@ class FakeMultiDataFiles:
         self.fast_zs = np.asarray([12.5], dtype=np.float64)
         self.header = Header()
         self.line_super_pixel_ids = [np.asarray([5], dtype=np.uint32) for _ in range(8)]
-        self.line_fast_z_idxs = np.ones(8, dtype=np.int64)
+        self.line_fast_z_idxs = np.zeros(8, dtype=np.int64)
         # Public positions are one-based int16 sample positions, exactly as in MATLAB.
         self.line_data_start_idxs = np.arange(1, 9, dtype=np.int64)
         self.h_data_files = [DataFile(str(path))]
@@ -82,17 +76,17 @@ class FakeMultiDataFiles:
 
 def params(output_dir: Path, **overrides: object) -> dict[str, object]:
     values: dict[str, object] = {
-        "outputDir": str(output_dir),
-        "outputFilename": "result.h5",
+        "output_dir": str(output_dir),
+        "output_filename": "result.h5",
         "overwrite": False,
-        "useParallel": False,
+        "use_parallel": False,
         "precision": "single",
-        "indicatorName": "test",
-        "indicatorDirection": "increases",
-        "f0Method": "static",
-        "f0Percentile": 50,
-        "h5ChunkSamples": 16,
-        "h5Deflate": 0,
+        "indicator_name": "test",
+        "indicator_direction": "increases",
+        "f0_method": "static",
+        "f0_percentile": 50,
+        "h5_chunk_samples": 16,
+        "h5_deflate": 0,
     }
     values.update(overrides)
     return values
@@ -159,20 +153,20 @@ class TestVoltage:
         summary = voltage(trial_table_path, params(output_dir))
 
         output_path = output_dir / "result.h5"
-        assert Path(summary["trialTablePath"]) == trial_table_path
-        assert Path(summary["outputPath"]) == output_path
-        assert summary["nPaths"] == 1
-        assert summary["nTrials"] == 1
+        assert Path(summary["trial_table_path"]) == trial_table_path
+        assert Path(summary["output_path"]) == output_path
+        assert summary["n_paths"] == 1
+        assert summary["n_trials"] == 1
         path_summary = summary["path"][0]
-        assert path_summary["nAcquisitionROIs"] == 1
-        assert path_summary["nROIs"] == 1
-        np.testing.assert_array_equal(path_summary["sourceRoiIdx"], [1])
-        assert path_summary["sampleRateHz"] == 1000
-        assert path_summary["totalSamples"] == 8
-        np.testing.assert_array_equal(path_summary["trialNumSamples"], [8])
-        np.testing.assert_array_equal(path_summary["trialEpoch"], [1])
-        np.testing.assert_array_equal(path_summary["inMemoryEpochIds"], [1])
-        assert np.asarray(path_summary["fallbackEpochIds"]).size == 0
+        assert path_summary["n_acquisition_rois"] == 1
+        assert path_summary["n_rois"] == 1
+        np.testing.assert_array_equal(path_summary["source_roi_idx"], [0])
+        assert path_summary["sample_rate_hz"] == 1000
+        assert path_summary["total_samples"] == 8
+        np.testing.assert_array_equal(path_summary["trial_num_samples"], [8])
+        np.testing.assert_array_equal(path_summary["trial_epoch"], [1])
+        np.testing.assert_array_equal(path_summary["in_memory_epoch_ids"], [1])
+        assert np.asarray(path_summary["fallback_epoch_ids"]).size == 0
         assert output_path.is_file()
 
         with h5py.File(output_path, "r") as handle:
@@ -213,7 +207,7 @@ class TestVoltage:
 
         summary = voltage(work_dir, params(output_dir))
 
-        assert Path(summary["trialTablePath"]) == work_dir / "trial_table.h5"
+        assert Path(summary["trial_table_path"]) == work_dir / "trial_table.h5"
 
     def test_existing_output_is_preserved_without_overwrite(self, tmp_path: Path) -> None:
         work_dir = tmp_path / "work"
@@ -283,22 +277,11 @@ class TestVoltageRoiDiscoveryContract:
 
         summary = voltage(trial_table_path, params(output_dir))
 
-        discovery = summary["path"][0]["roiDiscovery"]
+        discovery = summary["path"][0]["roi_discovery"]
         assert discovery["method"] == "parse_plan_integration_membership"
-        np.testing.assert_array_equal(discovery["sourceRoiIdx"], [1])
-        np.testing.assert_array_equal(discovery["integrationSuperPixelCounts"], [1])
-        assert discovery["imagingMode"] == ["test-double"]
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Legacy raw extraction selecting each ROI mask as both raster and integration pixels "
-            "cannot yet be observed through the proposed public Python API; expose an injectable "
-            "Trace factory or extraction callback, then replace this with a spy assertion."
-        ),
-    )
-    def test_raw_extraction_keeps_legacy_mask_semantics(self) -> None:
-        pytest.fail("No behaviorally observable Trace-construction seam exists yet")
+        np.testing.assert_array_equal(discovery["source_roi_idx"], [0])
+        np.testing.assert_array_equal(discovery["integration_super_pixel_counts"], [1])
+        assert discovery["imaging_mode"] == ["test-double"]
 
     def test_all_zero_rois_fail_and_delete_output(self, tmp_path: Path, write_int16) -> None:
         work_dir = tmp_path / "work"
@@ -310,18 +293,7 @@ class TestVoltageRoiDiscoveryContract:
         output_path = output_dir / "result.h5"
 
         with pytest.raises(Exception) as caught:
-            voltage(trial_table_path, params(output_dir, useParallel=True))
+            voltage(trial_table_path, params(output_dir, use_parallel=True))
 
         assert_error_code(caught.value, "Voltage:NoVoltageROIs")
         assert not output_path.exists()
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Lazy parallel-pool startup cannot yet be observed through the proposed public Python "
-            "API; expose an injectable executor/pool factory, then assert it is not called before "
-            "ROI discovery succeeds."
-        ),
-    )
-    def test_parallel_pool_is_lazy(self) -> None:
-        pytest.fail("No behaviorally observable executor-construction seam exists yet")

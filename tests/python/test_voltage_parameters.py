@@ -7,45 +7,45 @@ import numpy as np
 import pytest
 
 parameters = pytest.importorskip(
-    "slap2_voltage_extraction.parameters",
+    "dependencies.gui.set_params",
     reason="Python parameter translation has not been implemented yet",
 )
 set_params = parameters.set_params
-asap7_params = parameters.asap7_params
-asap8_params = parameters.asap8_params
+asap7_params = pytest.importorskip("presets.asap7_params").asap7_params
+asap8_params = pytest.importorskip("presets.asap8_params").asap8_params
 
 
 EXPECTED_DEFAULTS = {
-    "chIdx": 1,
-    "zIdx": 1,
-    "traceWindow_lines": 16,
-    "traceExpectedWindow_lines": 5000,
-    "indicatorName": "",
-    "indicatorDirection": "auto",
-    "f0Method": "robust",
-    "f0Percentile": 50,
-    "f0Bin_s": 5,
-    "f0Smooth_s": 180,
-    "useParallel": True,
-    "nWorkers": 4,
-    "maxConcurrentROIs": 2,
+    "ch_idx": 0,
+    "z_idx": 0,
+    "trace_window_lines": 16,
+    "trace_expected_window_lines": 5000,
+    "indicator_name": "",
+    "indicator_direction": "auto",
+    "f0_method": "robust",
+    "f0_percentile": 50,
+    "f0_bin_s": 5,
+    "f0_smooth_s": 180,
+    "use_parallel": True,
+    "n_workers": 4,
+    "max_concurrent_rois": 2,
     "precision": "single",
-    "outputDir": "",
-    "outputFilename": "VoltageSummary.h5",
+    "output_dir": "",
+    "output_filename": "VoltageSummary.h5",
     "overwrite": False,
-    "h5ChunkSamples": 100000,
-    "h5Deflate": 0,
-    "motionCensorEnable": False,
-    "motionPixelSize_um": 0.25,
-    "motionMedianWindow_s": 4,
-    "motionThresh": 2.5,
-    "motionScaleFloor_um": 0.25,
-    "motionAbsMax_um": 0,
-    "motionPad_s": 0.025,
-    "motionMergeGap_s": 0.05,
-    "motionDiscardInitial_s": 0,
-    "motionSamplesPerCycle": 1,
-    "motionMaxFracCensored": 0.25,
+    "h5_chunk_samples": 100000,
+    "h5_deflate": 0,
+    "motion_censor_enable": False,
+    "motion_pixel_size_um": 0.25,
+    "motion_median_window_s": 4,
+    "motion_thresh": 2.5,
+    "motion_scale_floor_um": 0.25,
+    "motion_abs_max_um": 0,
+    "motion_pad_s": 0.025,
+    "motion_merge_gap_s": 0.05,
+    "motion_discard_initial_s": 0,
+    "motion_samples_per_cycle": 1,
+    "motion_max_frac_censored": 0.25,
 }
 
 
@@ -61,79 +61,78 @@ class TestVoltageParameters:
         params = set_params(
             "Voltage",
             {
-                "chIdx": 2,
-                "indicatorName": "ASAP8",
-                "indicatorDirection": "increases",
-                "f0Method": "static",
+                "ch_idx": 1,
+                "indicator_name": "ASAP8",
+                "indicator_direction": "increases",
+                "f0_method": "static",
                 "precision": "double",
-                "outputDir": "custom",
-                "outputFilename": "result.h5",
-                "customMetadata": 17,
+                "output_dir": "custom",
+                "output_filename": "result.h5",
+                "custom_metadata": 17,
             },
         )
-        assert params["chIdx"] == 2
-        assert params["indicatorName"] == "ASAP8"
-        assert params["indicatorDirection"] == "increases"
-        assert params["f0Method"] == "static"
+        assert params["ch_idx"] == 1
+        assert params["indicator_name"] == "ASAP8"
+        assert params["indicator_direction"] == "increases"
+        assert params["f0_method"] == "static"
         assert params["precision"] == "double"
-        assert params["outputDir"] == "custom"
-        assert params["outputFilename"] == "result.h5"
-        assert params["customMetadata"] == 17
-        assert params["traceWindow_lines"] == 16
+        assert params["output_dir"] == "custom"
+        assert params["output_filename"] == "result.h5"
+        assert params["custom_metadata"] == 17
+        assert params["trace_window_lines"] == 16
 
     def test_count_and_compression_values_are_rounded(self) -> None:
         params = set_params(
             "Voltage",
             {
-                "nWorkers": 2.6,
-                "maxConcurrentROIs": 1.5,
-                "h5ChunkSamples": 10.6,
-                "h5Deflate": 2.6,
+                "n_workers": 2.6,
+                "max_concurrent_rois": 1.5,
+                "h5_chunk_samples": 10.6,
+                "h5_deflate": 2.6,
             },
         )
-        assert params["nWorkers"] == 3
-        assert params["maxConcurrentROIs"] == 2
-        assert params["h5ChunkSamples"] == 11
-        assert params["h5Deflate"] == 3
-        # MATLAB stores these as doubles. Python should expose ordinary ints after validation.
-        assert isinstance(params["nWorkers"], int) and not isinstance(params["nWorkers"], bool)
+        assert params["n_workers"] == 3
+        assert params["max_concurrent_rois"] == 2
+        assert params["h5_chunk_samples"] == 11
+        assert params["h5_deflate"] == 3
+        assert isinstance(params["n_workers"], int) and not isinstance(params["n_workers"], bool)
 
     def test_logical_flags_accept_logical_and_numeric_binary_values(self) -> None:
-        numeric = set_params("Voltage", {"useParallel": 0, "overwrite": 1})
-        assert numeric["useParallel"] is False
+        numeric = set_params("Voltage", {"use_parallel": 0, "overwrite": 1})
+        assert numeric["use_parallel"] is False
         assert numeric["overwrite"] is True
-        logical = set_params("Voltage", {"useParallel": True, "overwrite": False})
-        assert logical["useParallel"] is True
+        logical = set_params("Voltage", {"use_parallel": True, "overwrite": False})
+        assert logical["use_parallel"] is True
         assert logical["overwrite"] is False
 
     def test_json_text_input(self) -> None:
         params = set_params(
             "Voltage",
-            '{"indicatorName":"ASAP7y","indicatorDirection":"decreases",'
-            '"nWorkers":3.7,"useParallel":false}',
+            '{"indicator_name":"ASAP7y","indicator_direction":"decreases",'
+            '"n_workers":3.7,"use_parallel":false}',
         )
-        assert params["indicatorName"] == "ASAP7y"
-        assert params["indicatorDirection"] == "decreases"
-        assert params["nWorkers"] == 4
-        assert params["useParallel"] is False
+        assert params["indicator_name"] == "ASAP7y"
+        assert params["indicator_direction"] == "decreases"
+        assert params["n_workers"] == 4
+        assert params["use_parallel"] is False
 
     def test_json_file_input(self, tmp_path: Path) -> None:
         path = tmp_path / "params.json"
         path.write_text(
-            json.dumps({"f0Method": "static", "f0Percentile": 25, "precision": "double"}),
+            json.dumps({"f0_method": "static", "f0_percentile": 25, "precision": "double"}),
             encoding="utf-8",
         )
         params = set_params("Voltage", path)
-        assert params["f0Method"] == "static"
-        assert params["f0Percentile"] == 25
+        assert params["f0_method"] == "static"
+        assert params["f0_percentile"] == 25
         assert params["precision"] == "double"
 
     @pytest.mark.parametrize(
         ("variable_name", "values", "expected"),
         [
-            ("optsOut", {"indicatorName": "ASAP8", "indicatorDirection": "increases"}, {"indicatorName": "ASAP8", "indicatorDirection": "increases"}),
-            ("params", {"f0Bin_s": 2, "f0Smooth_s": 7}, {"f0Bin_s": 2, "f0Smooth_s": 7}),
-            ("customPreset", {"h5ChunkSamples": 12.7}, {"h5ChunkSamples": 13}),
+            ("optsOut", {"indicator_name": "ASAP8", "indicator_direction": "increases"}, {"indicator_name": "ASAP8", "indicator_direction": "increases"}),
+            ("params", {"f0_bin_s": 2, "f0_smooth_s": 7}, {"f0_bin_s": 2, "f0_smooth_s": 7}),
+            ("customPreset", {"h5_chunk_samples": 12.7}, {"h5_chunk_samples": 13}),
         ],
     )
     def test_mat_file_inputs(
@@ -148,23 +147,23 @@ class TestVoltageParameters:
 
     def test_asap7_preset_and_overrides(self) -> None:
         params = asap7_params()
-        assert params["indicatorName"] == "ASAP7"
-        assert params["indicatorDirection"] == "decreases"
-        assert params["f0Method"] == "robust"
-        params = asap7_params({"indicatorName": "ASAP7b", "precision": "double", "f0Percentile": 20})
-        assert params["indicatorName"] == "ASAP7b"
-        assert params["indicatorDirection"] == "decreases"
+        assert params["indicator_name"] == "ASAP7"
+        assert params["indicator_direction"] == "decreases"
+        assert params["f0_method"] == "robust"
+        params = asap7_params({"indicator_name": "ASAP7b", "precision": "double", "f0_percentile": 20})
+        assert params["indicator_name"] == "ASAP7b"
+        assert params["indicator_direction"] == "decreases"
         assert params["precision"] == "double"
-        assert params["f0Percentile"] == 20
+        assert params["f0_percentile"] == 20
 
     def test_asap8_preset_and_overrides(self) -> None:
         params = asap8_params()
-        assert params["indicatorName"] == "ASAP8"
-        assert params["indicatorDirection"] == "increases"
-        params = asap8_params({"indicatorDirection": "decreases", "outputFilename": "custom.h5"})
-        assert params["indicatorName"] == "ASAP8"
-        assert params["indicatorDirection"] == "decreases"
-        assert params["outputFilename"] == "custom.h5"
+        assert params["indicator_name"] == "ASAP8"
+        assert params["indicator_direction"] == "increases"
+        params = asap8_params({"indicator_direction": "decreases", "output_filename": "custom.h5"})
+        assert params["indicator_name"] == "ASAP8"
+        assert params["indicator_direction"] == "decreases"
+        assert params["output_filename"] == "custom.h5"
 
     def test_unknown_function_error(self) -> None:
         with pytest.raises(Exception) as caught:
@@ -187,20 +186,20 @@ class TestVoltageParameters:
     @pytest.mark.parametrize("value", [-1, 0.5, 2, [0, 1], np.nan, "true"])
     def test_invalid_logical_values_error(self, value: object) -> None:
         with pytest.raises(Exception) as caught:
-            set_params("Voltage", {"useParallel": value})
+            set_params("Voltage", {"use_parallel": value})
         _assert_code(caught.value, "setParams:InvalidLogical")
 
     @pytest.mark.parametrize("value", ["", "   "])
     def test_invalid_output_filename_error(self, value: str) -> None:
         with pytest.raises(Exception) as caught:
-            set_params("Voltage", {"outputFilename": value})
+            set_params("Voltage", {"output_filename": value})
         _assert_code(caught.value, "setParams:InvalidOutputFilename")
 
     @pytest.mark.parametrize(
         "overrides",
         [
-            {"indicatorDirection": "sideways"},
-            {"f0Method": "mean"},
+            {"indicator_direction": "sideways"},
+            {"f0_method": "mean"},
             {"precision": "half"},
         ],
     )
@@ -211,19 +210,19 @@ class TestVoltageParameters:
     @pytest.mark.parametrize(
         "overrides",
         [
-            {"chIdx": 0},
-            {"zIdx": 1.5},
-            {"traceWindow_lines": np.inf},
-            {"traceExpectedWindow_lines": -1},
-            {"f0Percentile": -1},
-            {"f0Percentile": 101},
-            {"f0Bin_s": 0},
-            {"f0Smooth_s": np.nan},
-            {"nWorkers": 0},
-            {"maxConcurrentROIs": np.inf},
-            {"h5ChunkSamples": 0},
-            {"h5Deflate": -1},
-            {"h5Deflate": 10},
+            {"ch_idx": -1},
+            {"z_idx": 1.5},
+            {"trace_window_lines": np.inf},
+            {"trace_expected_window_lines": -1},
+            {"f0_percentile": -1},
+            {"f0_percentile": 101},
+            {"f0_bin_s": 0},
+            {"f0_smooth_s": np.nan},
+            {"n_workers": 0},
+            {"max_concurrent_rois": np.inf},
+            {"h5_chunk_samples": 0},
+            {"h5_deflate": -1},
+            {"h5_deflate": 10},
         ],
     )
     def test_invalid_numeric_values_fail_validation(self, overrides: dict[str, object]) -> None:

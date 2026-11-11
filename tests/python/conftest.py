@@ -38,14 +38,14 @@ def write_int16(tmp_path: Path) -> Callable[[str, Any], Path]:
 @pytest.fixture
 def default_voltage_overrides() -> dict[str, Any]:
     return {
-        "outputFilename": "result.h5",
+        "output_filename": "result.h5",
         "overwrite": False,
-        "useParallel": False,
+        "use_parallel": False,
         "precision": "single",
-        "indicatorName": "test",
-        "indicatorDirection": "increases",
-        "f0Method": "static",
-        "f0Percentile": 50,
-        "h5ChunkSamples": 16,
-        "h5Deflate": 0,
+        "indicator_name": "test",
+        "indicator_direction": "increases",
+        "f0_method": "static",
+        "f0_percentile": 50,
+        "h5_chunk_samples": 16,
+        "h5_deflate": 0,
     }

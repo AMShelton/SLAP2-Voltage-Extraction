@@ -122,6 +122,32 @@ classdef TestTracePixel < matlab.unittest.TestCase
             testCase.verifySize(expected, [0 1]);
             testCase.verifySize(expectedWeighted, [0 1]);
         end
+
+        function testProcessAsyncMatchesSynchronousAggregation(testCase)
+            testCase.assumeTrue(license('test','Distrib_Computing_Toolbox'), ...
+                'Parallel Computing Toolbox is required for processAsync.');
+            originalPool = gcp('nocreate');
+            cleanup = onCleanup(@() testCase.deletePoolCreatedByTest(originalPool)); %#ok<NASGU>
+            first = testCase.loadedPixel(single(10), single(1/2));
+            second = testCase.loadedPixel(single(20), single(1/2));
+            pixels = [first; second];
+
+            [syncPixels,syncTrace,syncWeighted,syncExpected,syncExpectedWeighted] = ...
+                pixels.process(1,1);
+            future = pixels.processAsync(1,1);
+            testCase.verifyClass(future,'parallel.FevalFuture');
+            [asyncPixels,asyncTrace,asyncWeighted,asyncExpected,asyncExpectedWeighted] = ...
+                fetchOutputs(future);
+
+            testCase.verifyEqual(asyncTrace,syncTrace,'AbsTol',single(1e-5));
+            testCase.verifyEqual(asyncWeighted,syncWeighted,'AbsTol',single(1e-5));
+            testCase.verifyEqual(asyncExpected,syncExpected,'AbsTol',single(1e-5));
+            testCase.verifyEqual(asyncExpectedWeighted,syncExpectedWeighted, ...
+                'AbsTol',single(1e-5));
+            testCase.verifyEqual(numel(asyncPixels),numel(syncPixels));
+            testCase.verifyFalse(any([asyncPixels.isLoaded]));
+            testCase.verifyTrue(all(arrayfun(@(p) isempty(p.data),asyncPixels)));
+        end
     end
 
     methods (Access = private)
@@ -155,6 +181,15 @@ classdef TestTracePixel < matlab.unittest.TestCase
             cleanup = onCleanup(@() fclose(fid)); %#ok<NASGU>
             count = fwrite(fid, values, 'int16');
             testCase.assertEqual(count, numel(values));
+        end
+
+        function deletePoolCreatedByTest(~,originalPool)
+            if isempty(originalPool)
+                pool = gcp('nocreate');
+                if ~isempty(pool)
+                    delete(pool);
+                end
+            end
         end
     end
 end

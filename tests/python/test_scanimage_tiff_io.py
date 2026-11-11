@@ -3,14 +3,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 import struct
-from typing import Any
 import warnings
 
 import numpy as np
 import pytest
 
 tiff_io = pytest.importorskip(
-    "slap2_voltage_extraction.io.tiff",
+    "dependencies.io",
     reason="Python ScanImage TIFF I/O translation has not been implemented yet",
 )
 ScanImageTiffReader = tiff_io.ScanImageTiffReader
@@ -20,23 +19,6 @@ scanimage_tiff_data_wrapper = tiff_io.scanimage_tiff_data_wrapper
 
 def _assert_code(exc: BaseException, code: str) -> None:
     assert getattr(exc, "code", None) == code or code in str(exc)
-
-
-def _call(reader: Any, snake_name: str, matlab_name: str, *args: Any) -> Any:
-    """Use snake case when supplied, while tolerating MATLAB-style reader methods."""
-    method = getattr(reader, snake_name, None) or getattr(reader, matlab_name)
-    return method(*args)
-
-
-def _is_open(reader: Any) -> bool:
-    return bool(_call(reader, "is_open", "isOpen"))
-
-
-def _api_version() -> str:
-    method = getattr(ScanImageTiffReader, "api_version", None) or getattr(
-        ScanImageTiffReader, "apiVersion"
-    )
-    return str(method())
 
 
 def _write_tiff(path: Path, stack: np.ndarray) -> Path:
@@ -80,24 +62,20 @@ def _append_legacy_metadata(path: Path, metadata: bytes) -> None:
         stream.write(struct.pack("<I", len(metadata)))
 
 
-def _close(reader: Any) -> None:
-    reader.close()
-
-
 def test_api_version() -> None:
     # Preserve the implementation-identity contract without falsely labelling Python as MATLAB.
-    assert _api_version() == "ScanImageTiffReader (pure Python)"
+    assert ScanImageTiffReader.api_version() == "ScanImageTiffReader (pure Python)"
 
 
 def test_constructor_opens_and_close_is_idempotent(write_tiff: Callable[[np.ndarray], Path]) -> None:
     frame = np.arange(1, 13, dtype=np.uint16).reshape((3, 4), order="F")
     reader = ScanImageTiffReader(write_tiff(frame))
 
-    assert _is_open(reader)
+    assert reader.is_open()
     reader.close()
-    assert not _is_open(reader)
+    assert not reader.is_open()
     reader.close()
-    assert not _is_open(reader)
+    assert not reader.is_open()
 
 
 def test_open_on_default_constructed_reader(write_tiff: Callable[[np.ndarray], Path]) -> None:
@@ -105,13 +83,13 @@ def test_open_on_default_constructed_reader(write_tiff: Callable[[np.ndarray], P
     filename = write_tiff(frame)
     reader = ScanImageTiffReader()
 
-    assert not _is_open(reader)
+    assert not reader.is_open()
     returned = reader.open(filename)
 
     assert returned is reader
-    assert _is_open(reader)
+    assert reader.is_open()
     np.testing.assert_array_equal(reader.data(), frame.T)
-    _close(reader)
+    reader.close()
 
 
 def test_reads_single_page_uint8_with_current_orientation(
@@ -129,7 +107,7 @@ def test_reads_single_page_uint8_with_current_orientation(
     assert list(shape.dims) == [4, 3]
     assert shape.type == 0
     assert list(shape.strides) == [1, 4, 12]
-    _close(reader)
+    reader.close()
 
 
 def test_reads_multi_page_uint16_stack(write_tiff: Callable[[np.ndarray], Path]) -> None:
@@ -148,7 +126,7 @@ def test_reads_multi_page_uint16_stack(write_tiff: Callable[[np.ndarray], Path])
     assert list(shape.dims) == [4, 3, 2]
     assert shape.type == 1
     assert list(shape.strides) == [1, 4, 12, 24]
-    _close(reader)
+    reader.close()
 
 
 def test_descriptions_and_metadata_for_plain_tiff(write_tiff: Callable[[np.ndarray], Path]) -> None:
@@ -156,11 +134,11 @@ def test_descriptions_and_metadata_for_plain_tiff(write_tiff: Callable[[np.ndarr
     reader = ScanImageTiffReader(write_tiff(frame))
 
     descriptions = reader.descriptions()
-    assert np.asarray(descriptions, dtype=object).shape == (1, 1)
-    assert str(np.asarray(descriptions, dtype=object)[0, 0]).strip() == ""
+    assert len(descriptions) == 1
+    assert str(descriptions[0]).strip() == ""
     # Keep strict: a NUL is not empty and exposed the legacy metadata bug.
     assert reader.metadata() == ""
-    _close(reader)
+    reader.close()
 
 
 def test_wrapper_returns_data_metadata_and_descriptions(
@@ -174,9 +152,8 @@ def test_wrapper_returns_data_metadata_and_descriptions(
 
     np.testing.assert_array_equal(data, np.stack((first.T, second.T), axis=2))
     assert metadata == ""
-    descriptions_array = np.asarray(descriptions, dtype=object)
-    assert descriptions_array.shape == (2, 1)
-    assert all(str(value).strip() == "" for value in descriptions_array.flat)
+    assert len(descriptions) == 2
+    assert all(str(value).strip() == "" for value in descriptions)
 
 
 def test_reads_validated_legacy_metadata_trailer(write_tiff: Callable[[np.ndarray], Path]) -> None:
@@ -187,7 +164,7 @@ def test_reads_validated_legacy_metadata_trailer(write_tiff: Callable[[np.ndarra
 
     reader = ScanImageTiffReader(filename)
     assert reader.metadata() == expected
-    _close(reader)
+    reader.close()
 
 
 def test_rejects_null_only_legacy_metadata_candidate(
@@ -199,7 +176,7 @@ def test_rejects_null_only_legacy_metadata_candidate(
 
     reader = ScanImageTiffReader(filename)
     assert reader.metadata() == ""
-    _close(reader)
+    reader.close()
 
 
 def test_rejects_implausible_legacy_metadata_length(
@@ -212,7 +189,7 @@ def test_rejects_implausible_legacy_metadata_length(
 
     reader = ScanImageTiffReader(filename)
     assert reader.metadata() == ""
-    _close(reader)
+    reader.close()
 
 
 def test_data_wrapper_falls_back_after_reader_is_closed(

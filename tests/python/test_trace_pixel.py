@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 trace_module = pytest.importorskip(
-    "slap2_voltage_extraction.trace",
+    "dependencies.slap2_trace",
     reason="Python Trace/TracePixel translation has not been implemented yet",
 )
 TracePixel = trace_module.TracePixel
@@ -17,7 +17,7 @@ def make_pixel(
     byte_offsets: list[int],
     line_idxs: list[int],
 ) -> object:
-    """Build a TracePixel using the translated kernel's 1-based public line indices."""
+    """Build a TracePixel using zero-based internal line indices."""
     if isinstance(filenames, Path):
         filenames = [filenames]
     return TracePixel(
@@ -36,7 +36,7 @@ def loaded_pixel(value: np.float32, spatial_weight: np.float32) -> object:
     return TracePixel(
         data=np.full((2, 2), value, dtype=np.float32),
         is_loaded=True,
-        line_idxs=np.asarray([1, 2], dtype=np.uint32),
+        line_idxs=np.asarray([0, 1], dtype=np.uint32),
         lines_per_cycle=2,
         super_pixel_num_pixels=np.float32(1),
         super_pixel_num_pixels_selected=spatial_weight,
@@ -50,7 +50,7 @@ class TestTracePixel:
             [11, 99, np.iinfo(np.int16).min, 88, 21, 77, 31, 66],
         )
         file_b = write_int16("b.dat", [-1, 9, -2, 8, -3, 7, -4, 6])
-        pixel = make_pixel([file_a, file_b], [2, 6], [1, 3])
+        pixel = make_pixel([file_a, file_b], [2, 6], [0, 2])
 
         pixel.load()
 
@@ -63,7 +63,7 @@ class TestTracePixel:
 
     def test_load_is_idempotent_after_file_changes(self, write_int16) -> None:
         filename = write_int16("stable.dat", [3, 0, 3, 0, 3, 0, 3, 0])
-        pixel = make_pixel(filename, [2], [1])
+        pixel = make_pixel(filename, [2], [0])
         pixel.load()
         original = pixel.data.copy()
 
@@ -75,7 +75,7 @@ class TestTracePixel:
     def test_load_replaces_int16_sentinel_only(self, write_int16) -> None:
         limits = np.iinfo(np.int16)
         filename = write_int16("sentinel.dat", [limits.min, 0, limits.max, 0])
-        pixel = make_pixel(filename, [2, 6], [1, 2])
+        pixel = make_pixel(filename, [2, 6], [0, 1])
         pixel.bytes_per_cycle = 8
 
         pixel.load()
@@ -87,24 +87,25 @@ class TestTracePixel:
 
     def test_process_single_pixel_has_analytical_constant_result(self, write_int16) -> None:
         filename = write_int16("constant.dat", np.full(8, 10, dtype=np.int16))
-        pixel = make_pixel(filename, [2, 6], [2, 4])
+        pixel = make_pixel(filename, [2, 6], [1, 3])
         pixel.super_pixel_num_pixels = np.float32(4)
         pixel.super_pixel_num_pixels_selected = np.float32(2)
 
         trace, weighted, expected, expected_weighted = pixel.process(1, 1)
 
-        sampled = np.asarray([2, 4, 6, 8]) - 1
+        sampled = np.asarray([1, 3, 5, 7])
         unsampled = np.setdiff1d(np.arange(8), sampled)
         assert pixel.is_loaded is False
         assert pixel.data.dtype == np.float32
-        assert pixel.data.size == 0
-        assert trace.shape == (8, 1)
-        assert trace.dtype == np.float32
-        np.testing.assert_allclose(trace[sampled, 0], 5, atol=1e-5, rtol=0)
-        np.testing.assert_array_equal(trace[unsampled, 0], np.zeros(4, dtype=np.float32))
-        np.testing.assert_allclose(expected[sampled, 0], 10, atol=1e-5, rtol=0)
+        assert pixel.data.shape == (0,)
+        for result in (trace, weighted, expected, expected_weighted):
+            assert result.shape == (8,)
+            assert result.dtype == np.float32
+        np.testing.assert_allclose(trace[sampled], 5, atol=1e-5, rtol=0)
+        np.testing.assert_array_equal(trace[unsampled], np.zeros(4, dtype=np.float32))
+        np.testing.assert_allclose(expected[sampled], 10, atol=1e-5, rtol=0)
         assert np.all(weighted > 0)
-        assert np.all(expected_weighted[sampled, 0] > 0)
+        assert np.all(expected_weighted[sampled] > 0)
 
     def test_process_aggregates_pixels_before_normalization(self) -> None:
         pixels = [
@@ -116,20 +117,21 @@ class TestTracePixel:
 
         np.testing.assert_allclose(
             trace,
-            np.full((4, 1), 15, dtype=np.float32),
+            np.full(4, 15, dtype=np.float32),
             atol=1e-5,
             rtol=0,
         )
         for pixel in pixels:
             assert pixel.is_loaded is False
-            assert pixel.data.dtype == np.float32 and pixel.data.size == 0
+            assert pixel.data.dtype == np.float32
+            assert pixel.data.shape == (0,)
 
-    def test_process_empty_array_returns_empty_single_columns(self) -> None:
+    def test_process_empty_array_returns_empty_vectors(self) -> None:
         pixels: list[object] = []
 
         trace, weighted, expected, expected_weighted = TracePixel.process(pixels, 1, 1)
 
         assert pixels == []
         for result in (trace, weighted, expected, expected_weighted):
-            assert result.shape == (0, 1)
+            assert result.shape == (0,)
             assert result.dtype == np.float32

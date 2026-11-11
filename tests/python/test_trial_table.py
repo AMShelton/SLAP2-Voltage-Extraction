@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 trial_table = pytest.importorskip(
-    "slap2_voltage_extraction.trial_table",
+    "build_trial_table_slap2",
     reason="Python trial-table translation has not been implemented yet",
 )
 build_trial_table_slap2 = trial_table.build_trial_table_slap2
@@ -40,14 +40,14 @@ class FakeDataReader:
 
 
 class FakeTiffReader:
-    """Return the deterministic six-frame stack used by the MATLAB test double."""
+    """Return equivalent scientific metadata using Python-native values."""
 
     def __init__(self) -> None:
         self.paths: list[Path] = []
 
     def __call__(self, path: str | Path) -> tuple[np.ndarray, str, list[dict[str, Any]]]:
         self.paths.append(Path(path))
-        image = np.arange(1, 8 * 8 * 6 + 1, dtype=np.uint16).reshape((8, 8, 6), order="F")
+        image = np.arange(1, 8 * 8 * 6 + 1, dtype=np.uint16).reshape((8, 8, 6))
         descriptions = [
             {
                 "channel": channel,
@@ -336,7 +336,7 @@ class TestBuildTrialTableSlap2:
         self, roots: tuple[Path, Path], readers: tuple[FakeDataReader, FakeTiffReader]
     ) -> None:
         hdf5 = pytest.importorskip(
-            "slap2_voltage_extraction.io.hdf5",
+            "dependencies.io",
             reason="Python HDF5 translation has not been implemented yet",
         )
         data_root, save_dir = roots

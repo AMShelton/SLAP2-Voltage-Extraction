@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slap2-voltage-extraction"
+version = "0.1.0"
+description = "Python implementation of the SLAP2 voltage-extraction pipeline"
+readme = "README.md"
+requires-python = ">=3.13,<3.15"
+dependencies = [
+    "h5py>=3.12",
+    "numpy>=2.0",
+    "pillow>=11.0",
+    "scipy>=1.14",
+    "tifffile>=2024.9.20",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["source_extraction*", "dependencies*", "presets*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+addopts = ["-ra"]

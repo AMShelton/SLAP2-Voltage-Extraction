@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 hdf5 = pytest.importorskip(
-    "slap2_voltage_extraction.io.hdf5",
+    "dependencies.io",
     reason="Python HDF5 I/O translation has not been implemented yet",
 )
 save_struct_to_h5 = hdf5.save_struct_to_h5
