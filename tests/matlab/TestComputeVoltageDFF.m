@@ -7,7 +7,7 @@ classdef TestComputeVoltageDFF < matlab.unittest.TestCase
 
             testsDir = fileparts(mfilename('fullpath'));
             repoRoot = fileparts(fileparts(testsDir));
-            testCase.applyFixture(PathFixture(fullfile(repoRoot, 'source_extraction')));
+            testCase.applyFixture(PathFixture(fullfile(repoRoot, 'source_extraction_matlab')));
         end
     end
 

@@ -5,7 +5,7 @@ end
 function setup(~)
 testsDir = fileparts(mfilename('fullpath'));
 repoRoot = fileparts(fileparts(testsDir));
-addpath(fullfile(repoRoot,'source_extraction'));
+addpath(fullfile(repoRoot,'source_extraction_matlab'));
 addpath(fullfile(repoRoot,'dependencies','gui'));
 end
 

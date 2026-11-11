@@ -2,7 +2,7 @@ function setup()
 %SETUP Add SLAP2 Voltage Extraction to the MATLAB path and verify dependencies.
 root = fileparts(mfilename('fullpath'));
 addpath(root,'-begin');
-addpath(fullfile(root,'source_extraction'),'-begin');
+addpath(fullfile(root,'source_extraction_matlab'),'-begin');
 addpath(fullfile(root,'dependencies','io'),'-begin');
 addpath(fullfile(root,'dependencies','gui'),'-begin');
 addpath(fullfile(root,'dependencies','slap2_trace'),'-begin');
