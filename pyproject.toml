@@ -22,9 +22,12 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["source_extraction*", "dependencies*", "presets*"]
+where = ["src"]
+include = ["slap2_voltage_extraction*"]
+
+[tool.setuptools.package-data]
+slap2_voltage_extraction = ["py.typed"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests/python"]
+testpaths = ["tests"]
 addopts = ["-ra"]

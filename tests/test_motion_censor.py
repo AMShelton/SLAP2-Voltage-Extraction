@@ -1,0 +1,200 @@
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+motion = pytest.importorskip(
+    "slap2_voltage_extraction.source_extraction",
+    reason="Python motion-censor translation has not been implemented yet",
+)
+
+motion_censor_defaults = motion.motion_censor_defaults
+validate_motion_censor_params = motion.validate_motion_censor_params
+compute_motion_censor = motion.compute_motion_censor
+expand_motion_mask_to_lines = motion.expand_motion_mask_to_lines
+
+
+def base_params() -> dict[str, object]:
+    params = motion_censor_defaults()
+    params["motion_censor_enable"] = True
+    return params
+
+
+def _mask(result: object) -> np.ndarray:
+    if isinstance(result, tuple):
+        result = result[0]
+    mask = np.asarray(result)
+    assert mask.dtype == np.bool_
+    assert mask.ndim == 1
+    return mask
+
+
+def test_defaults_validate() -> None:
+    params = validate_motion_censor_params({})
+    assert params["motion_censor_enable"] is False
+    assert params["motion_pixel_size_um"] == 0.25
+    assert params["motion_thresh"] == 2.5
+
+
+def test_set_params_exposes_motion_fields() -> None:
+    parameters = pytest.importorskip(
+        "slap2_voltage_extraction.parameters.set_params",
+        reason="Python parameter translation has not been implemented yet",
+    )
+    set_params = parameters.set_params
+    params = set_params("Voltage", {})
+    assert set(motion_censor_defaults()) <= set(params)
+    assert params["motion_censor_enable"] is False
+
+
+def test_stationary_nothing_censored() -> None:
+    mask = _mask(compute_motion_censor(np.zeros(1000), np.zeros(1000), 50, base_params()))
+    assert not mask.any()
+
+
+def test_constant_offset_is_drift_not_motion() -> None:
+    mask = _mask(
+        compute_motion_censor(np.full(1000, 8), np.full(1000, -6), 50, base_params())
+    )
+    assert not mask.any()
+
+
+def test_jump_is_censored_and_padded() -> None:
+    x = np.zeros(1000)
+    y = np.zeros(1000)
+    # One-based samples 500:504 map to zero-based positions 499:504.
+    x[499:504] = 12
+    x[[497, 498, 504, 505]] = 2
+    params = base_params()
+    params.update(motion_pad_s=0, motion_merge_gap_s=0)
+    mask = _mask(compute_motion_censor(x, y, 50, params))
+    np.testing.assert_array_equal(np.flatnonzero(mask), np.arange(499, 504))
+
+    # Two samples of padding per side, extending only into shoulders above threshold/2.
+    params["motion_pad_s"] = 0.04
+    padded = _mask(compute_motion_censor(x, y, 50, params))
+    np.testing.assert_array_equal(np.flatnonzero(padded), np.arange(497, 506))
+
+
+def test_nearby_spans_merge() -> None:
+    x = np.zeros(1000)
+    y = np.zeros(1000)
+    x[499:502] = 12
+    x[504:507] = 12
+    params = base_params()
+    params.update(motion_pad_s=0, motion_merge_gap_s=0.1)
+    mask = _mask(compute_motion_censor(x, y, 50, params))
+    assert mask[499:507].all()
+
+
+def test_absolute_cap() -> None:
+    x = np.full(1000, 20)
+    y = np.zeros(1000)
+    params = base_params()
+    params["motion_abs_max_um"] = 3
+    mask = _mask(compute_motion_censor(x, y, 50, params))
+    assert mask.all()
+
+
+def test_nonfinite_offsets_censored() -> None:
+    x = np.zeros(200)
+    y = np.zeros(200)
+    x[49] = np.nan
+    mask = _mask(compute_motion_censor(x, y, 50, base_params()))
+    assert mask[49]
+
+
+def test_discard_initial() -> None:
+    params = base_params()
+    params["motion_discard_initial_s"] = 1
+    mask = _mask(compute_motion_censor(np.zeros(500), np.zeros(500), 50, params))
+    assert mask[:50].all()
+    assert not mask[50:].any()
+
+
+def test_expand_mask_to_lines() -> None:
+    # Python line IDs are zero-based. Each sample covers its line through the line before the next ID.
+    line_mask = np.asarray(expand_motion_mask_to_lines([False, True, False], [0, 4, 8], 12))
+    assert line_mask.shape == (12,)
+    assert line_mask.dtype == np.bool_
+    np.testing.assert_array_equal(
+        line_mask, [False] * 4 + [True] * 4 + [False] * 4
+    )
+
+    # Lines preceding the first sampled line take the first sample.
+    line_mask = np.asarray(expand_motion_mask_to_lines([True, False], [2, 6], 8))
+    assert line_mask.shape == (8,)
+    np.testing.assert_array_equal(line_mask, [True] * 6 + [False] * 2)
+
+
+def test_expand_rejects_bad_ids() -> None:
+    with pytest.raises(Exception) as caught:
+        expand_motion_mask_to_lines([True, False], [5, 3], 8)
+    assert getattr(caught.value, "code", None) == "expandMotionMaskToLines:InvalidLineIds" or (
+        "expandMotionMaskToLines:InvalidLineIds" in str(caught.value)
+    )
+
+
+def test_censored_samples_do_not_bias_f0() -> None:
+    parameters = pytest.importorskip(
+        "slap2_voltage_extraction.parameters.set_params"
+    )
+    baseline = pytest.importorskip(
+        "slap2_voltage_extraction.source_extraction.compute_voltage_f0"
+    )
+    normalization = pytest.importorskip(
+        "slap2_voltage_extraction.source_extraction.compute_voltage_dff"
+    )
+    set_params = parameters.set_params
+    compute_voltage_f0 = baseline.compute_voltage_f0
+    compute_voltage_dff = normalization.compute_voltage_dff
+    # RandomState reproduces NumPy's stable MT19937 sequence for a deterministic fixture.
+    rng = np.random.RandomState(1)
+    fs = 100
+    n = 6000
+    raw = np.asarray(100 + 0.5 * rng.standard_normal(n), dtype=np.float32)
+    censor = np.zeros(n, dtype=bool)
+    censor[1999:2600] = True
+    raw[censor] = np.float32(300)
+    params = set_params("Voltage", {"f0_method": "robust", "f0_bin_s": 1, "f0_smooth_s": 3})
+
+    unmasked_f0, _ = compute_voltage_f0(raw, fs, params)
+    assert np.max(unmasked_f0) > 150
+
+    masked = raw.copy()
+    masked[censor] = np.nan
+    f0, _ = compute_voltage_f0(masked, fs, params)
+    assert np.isfinite(f0).all()
+    assert np.max(np.abs(f0 - 100)) < 2
+    dff, _ = compute_voltage_dff(masked, f0, "ASAP8", "increases", "single")
+    assert np.isnan(dff[censor]).all()
+    assert np.isfinite(dff[~censor]).all()
+    assert dff.dtype == np.float32
+
+
+def test_all_censored_epoch_is_safe() -> None:
+    parameters = pytest.importorskip(
+        "slap2_voltage_extraction.parameters.set_params"
+    )
+    baseline = pytest.importorskip(
+        "slap2_voltage_extraction.source_extraction.compute_voltage_f0"
+    )
+    set_params = parameters.set_params
+    compute_voltage_f0 = baseline.compute_voltage_f0
+    params = set_params("Voltage", {"f0_method": "robust", "f0_bin_s": 1, "f0_smooth_s": 3})
+    raw = np.full(1000, np.nan, dtype=np.float32)
+    f0, _ = compute_voltage_f0(raw, 100, params)
+    assert np.isfinite(f0).all()
+
+
+def test_public_motion_api_is_importable() -> None:
+    """The motion-censoring functions are available from the focused subpackage."""
+    expected = {
+        "motion_censor_defaults",
+        "validate_motion_censor_params",
+        "compute_motion_censor",
+        "expand_motion_mask_to_lines",
+    }
+    assert expected <= set(dir(motion))
+    for name in expected:
+        assert callable(getattr(motion, name))

@@ -1,16 +1,12 @@
-*.asv
-*.m~
 *.mat
 *.dat
 *.meta
 *.tif
 *.tiff
 *.h5
-!tests/matlab/fixtures/*.h5
 Voltage/
 .DS_Store
 Thumbs.db
-matlab-test-results.log
 .venv/
 .uv-python/
 __pycache__/
