@@ -46,6 +46,13 @@ def local_voltage_params(
     """Merge defaults, apply the headless GUI adapter, and validate parameters."""
 
     params = set_params("Voltage", params_in)
+    known_names = set(set_params("Voltage"))
+    unknown_names = sorted(set(params) - known_names)
+    if unknown_names:
+        raise _error(
+            "processVoltage:UnknownParameter",
+            f"Unknown voltage parameter: {unknown_names[0]}",
+        )
     if force_gui:
         params = options_gui(params, function_name="Voltage", updates=option_updates)
         params = set_params("Voltage", params)
